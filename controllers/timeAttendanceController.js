@@ -120,7 +120,11 @@ exports.handleHikvisionEvent = async (req, res) => {
         }
         
         // Extract thông tin từ event notification
-        let eventType, eventState, dateTime, activePost, accessControllerEvent;
+        let eventType = null;
+        let eventState = null;
+        let dateTime = null;
+        let activePost = null;
+        let accessControllerEvent = null;
         
         if (eventData.EventNotificationAlert) {
             const alert = eventData.EventNotificationAlert;
@@ -135,6 +139,16 @@ exports.handleHikvisionEvent = async (req, res) => {
             dateTime = eventData.dateTime;
             activePost = eventData.ActivePost || eventData.activePost;
             accessControllerEvent = eventData.AccessControllerEvent;
+        }
+
+        // Kiểm tra eventType có hợp lệ không
+        if (!eventType) {
+            console.log('⚠️ No valid eventType found in event data');
+            return res.status(200).json({
+                status: "success", 
+                message: "No valid eventType found",
+                timestamp: new Date().toISOString()
+            });
         }
 
         // Chỉ xử lý face recognition events
@@ -180,10 +194,10 @@ exports.handleHikvisionEvent = async (req, res) => {
             try {
                 // Trích xuất thông tin nhân viên - ưu tiên employeeNoString
                 const employeeCode = post.employeeNoString || post.FPID || post.cardNo || post.employeeCode || post.userID;
-                const employeeName = post.name; // Tên nhân viên
+                const employeeName = post.name || null; // Tên nhân viên
                 const timestamp = post.dateTime || dateTime;
                 const deviceId = post.ipAddress || eventData.ipAddress || post.deviceID;
-                const deviceName = post.deviceName || 'Unknown Device'; // Tên thiết bị
+                const deviceName = post.deviceName || eventData.deviceName || 'Unknown Device'; // Tên thiết bị
 
                 if (!employeeCode || !timestamp) {
                     errors.push({
@@ -277,8 +291,8 @@ exports.handleHikvisionEvent = async (req, res) => {
             status: "success",
             message: `Processed ${recordsProcessed} attendance events`,
             timestamp: new Date().toISOString(),
-            eventType,
-            eventState,
+            eventType: eventType || 'unknown',
+            eventState: eventState || 'unknown',
             recordsProcessed,
             totalErrors: errors.length
         };
