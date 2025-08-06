@@ -19,6 +19,12 @@ class TimeAttendanceController {
     try {
       const eventData = req.body;
       
+      // Extract basic event info
+      const eventType = eventData.eventType || eventData.type || 'unknown';
+      const eventState = eventData.eventState || eventData.state || 'active';
+      const dateTime = eventData.dateTime || eventData.timestamp;
+      const deviceId = eventData.ipAddress || eventData.deviceId || eventData.sim;
+      
       console.log(`[${new Date().toISOString()}] === HIKVISION EVENT DEBUG ===`);
       console.log('📋 Method:', req.method);
       console.log('📋 URL:', req.url);
@@ -32,12 +38,6 @@ class TimeAttendanceController {
       let recordsProcessed = 0;
       let recordsSkipped = 0;
       let errors = [];
-
-      // Extract basic event info
-      const eventType = eventData.eventType || eventData.type || 'unknown';
-      const eventState = eventData.eventState || eventData.state || 'active';
-      const dateTime = eventData.dateTime || eventData.timestamp;
-      const deviceId = eventData.ipAddress || eventData.deviceId || eventData.sim;
 
       // Handle AccessControllerEvent specifically
       if (eventData.AccessControllerEvent) {
@@ -155,7 +155,7 @@ class TimeAttendanceController {
 
                 // Skip old events
                 if (this.isEventTooOld(timestamp)) {
-                  console.log(`⏰ Skipping old EventNotificationAlert for employee ${employeeCode} at ${timestamp}`);
+                  console.log(`⏰ Bỏ qua EventNotificationAlert cũ cho nhân viên ${employeeCode} lúc ${timestamp}`);
                   recordsSkipped++;
                   continue;
                 }
@@ -202,7 +202,7 @@ class TimeAttendanceController {
               const postDeviceId = activePost.ipAddress || deviceId || activePost.deviceID;
 
               if (this.isEventTooOld(timestamp)) {
-                console.log(`⏰ Skipping old single EventNotificationAlert for employee ${employeeCode} at ${timestamp}`);
+                console.log(`⏰ Bỏ qua single EventNotificationAlert cũ cho nhân viên ${employeeCode} lúc ${timestamp}`);
                 recordsSkipped++;
               } else if (employeeCode && timestamp) {
                 const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
@@ -247,7 +247,7 @@ class TimeAttendanceController {
 
             // Skip old events
             if (this.isEventTooOld(timestamp)) {
-              console.log(`⏰ Skipping old event for employee ${employeeCode} at ${timestamp}`);
+              console.log(`⏰ Bỏ qua event cũ cho nhân viên ${employeeCode} lúc ${timestamp}`);
               recordsSkipped++;
               continue;
             }
@@ -269,7 +269,7 @@ class TimeAttendanceController {
               });
 
               recordsProcessed++;
-              console.log(`✅ Processed event for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+                              console.log(`✅ Đã xử lý event cho nhân viên ${employeeCode} lúc ${parsedTimestamp.toISOString()}`);
             } else {
               errors.push({
                 post,
@@ -294,7 +294,7 @@ class TimeAttendanceController {
           const postDeviceId = activePost.ipAddress || deviceId || activePost.deviceID;
 
           if (this.isEventTooOld(timestamp)) {
-            console.log(`⏰ Skipping old single post for employee ${employeeCode} at ${timestamp}`);
+                            console.log(`⏰ Bỏ qua single post cũ cho nhân viên ${employeeCode} lúc ${timestamp}`);
             recordsSkipped++;
           } else if (employeeCode && timestamp) {
             const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
@@ -313,7 +313,7 @@ class TimeAttendanceController {
             });
 
             recordsProcessed++;
-            console.log(`✅ Processed single event for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+                            console.log(`✅ Đã xử lý single event cho nhân viên ${employeeCode} lúc ${parsedTimestamp.toISOString()}`);
           } else {
             errors.push({
               activePost,
@@ -335,7 +335,7 @@ class TimeAttendanceController {
           const timestamp = dateTime;
           
           if (this.isEventTooOld(timestamp)) {
-            console.log(`⏰ Skipping old root level event for employee ${employeeCode} at ${timestamp}`);
+            console.log(`⏰ Bỏ qua root level event cũ cho nhân viên ${employeeCode} lúc ${timestamp}`);
             recordsSkipped++;
           } else if (employeeCode && timestamp) {
             const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
@@ -353,7 +353,7 @@ class TimeAttendanceController {
             });
 
             recordsProcessed++;
-            console.log(`✅ Processed root level event for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+            console.log(`✅ Đã xử lý root level event cho nhân viên ${employeeCode} lúc ${parsedTimestamp.toISOString()}`);
           } else {
             errors.push({
               eventData,
