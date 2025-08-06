@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const attendanceController = require('../controllers/attendanceController');
-const hikvisionController = require('../controllers/hikvisionController');
+const timeAttendanceController = require('../controllers/timeAttendanceController');
 
 // Parse raw body for Hikvision webhooks
 const parseRawBody = (req, res, next) => {
@@ -34,48 +33,35 @@ const logRequest = (req, res, next) => {
   next();
 };
 
-// Basic time attendance routes
-router.post('/find-or-create', attendanceController.findOrCreateDayRecord.bind(attendanceController));
-router.post('/update', attendanceController.updateAttendanceTime.bind(attendanceController));
-router.get('/stats', attendanceController.getAttendanceStats.bind(attendanceController));
-router.get('/employee/:employee_code', attendanceController.getEmployeeAttendance.bind(attendanceController));
+// Time attendance routes
+router.post('/find-or-create', timeAttendanceController.findOrCreateTimeAttendance.bind(timeAttendanceController));
+router.post('/update', timeAttendanceController.updateTimeAttendance.bind(timeAttendanceController));
+router.get('/stats', timeAttendanceController.getTimeAttendanceStats.bind(timeAttendanceController));
+router.get('/employee/:employee_code', timeAttendanceController.getEmployeeTimeAttendance.bind(timeAttendanceController));
 
 // Hikvision integration routes
 router.post('/hikvision/event', 
   logRequest,
   parseRawBody,
-  hikvisionController.handleHikvisionEvent.bind(hikvisionController)
+  timeAttendanceController.processHikvisionEvent.bind(timeAttendanceController)
 );
 
 router.post('/hikvision/batch',
-  hikvisionController.uploadAttendanceBatch.bind(hikvisionController)
+  timeAttendanceController.uploadAttendanceBatch.bind(timeAttendanceController)
 );
 
 router.get('/hikvision/stats',
-  hikvisionController.getProcessingStats.bind(hikvisionController)
+  timeAttendanceController.getProcessingStats.bind(timeAttendanceController)
 );
 
 // Legacy Hikvision endpoint for compatibility
 router.post('/hikvision', 
   logRequest,
   parseRawBody,
-  hikvisionController.handleHikvisionEvent.bind(hikvisionController)
+  timeAttendanceController.processHikvisionEvent.bind(timeAttendanceController)
 );
 
 // Legacy process endpoint
-router.post('/process', attendanceController.processHikvisionEvent.bind(attendanceController));
-
-// Frappe-compatible API endpoints
-router.post('/erp.it.doctype.erp_time_attendance.erp_time_attendance.find_or_create_day_record',
-  attendanceController.findOrCreateDayRecord.bind(attendanceController));
-
-router.post('/erp.it.doctype.erp_time_attendance.erp_time_attendance.update_attendance_time',
-  attendanceController.updateAttendanceTime.bind(attendanceController));
-
-router.post('/erp.it.doctype.erp_time_attendance.erp_time_attendance.handle_hikvision_event',
-  logRequest,
-  parseRawBody,
-  hikvisionController.handleHikvisionEvent.bind(hikvisionController)
-);
+router.post('/process', timeAttendanceController.processHikvisionEvent.bind(timeAttendanceController));
 
 module.exports = router;

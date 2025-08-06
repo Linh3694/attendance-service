@@ -6,6 +6,8 @@ class RedisClient {
     this.client = null;
     this.pubClient = null;
     this.subClient = null;
+    this.publishers = new Map();
+    this.subscribers = new Map();
   }
 
   async connect() {
@@ -30,15 +32,191 @@ class RedisClient {
 
       this.subClient = this.pubClient.duplicate();
 
+      // Service-specific publishers
+      this.publishers.set('notification', createClient({
+        socket: { host: process.env.REDIS_HOST, port: process.env.REDIS_PORT },
+        password: process.env.REDIS_PASSWORD,
+      }));
+
+      this.publishers.set('frappe', createClient({
+        socket: { host: process.env.REDIS_HOST, port: process.env.REDIS_PORT },
+        password: process.env.REDIS_PASSWORD,
+      }));
+
+      this.publishers.set('attendance', createClient({
+        socket: { host: process.env.REDIS_HOST, port: process.env.REDIS_PORT },
+        password: process.env.REDIS_PASSWORD,
+      }));
+
+      // Service-specific subscribers
+      this.subscribers.set('notification', createClient({
+        socket: { host: process.env.REDIS_HOST, port: process.env.REDIS_PORT },
+        password: process.env.REDIS_PASSWORD,
+      }));
+
+      this.subscribers.set('frappe', createClient({
+        socket: { host: process.env.REDIS_HOST, port: process.env.REDIS_PORT },
+        password: process.env.REDIS_PASSWORD,
+      }));
+
+      this.subscribers.set('attendance', createClient({
+        socket: { host: process.env.REDIS_HOST, port: process.env.REDIS_PORT },
+        password: process.env.REDIS_PASSWORD,
+      }));
+
       await this.client.connect();
       await this.pubClient.connect();
       await this.subClient.connect();
 
-      console.log('✅ [Attendance Service] Redis connected successfully');
+      // Connect all publishers and subscribers
+      for (const [name, client] of this.publishers) {
+        await client.connect();
+      }
+
+      for (const [name, client] of this.subscribers) {
+        await client.connect();
+      }
+
+      console.log('✅ [Time Attendance Service] Redis connected successfully');
+      
+      // Setup service subscriptions
+      await this.setupServiceSubscriptions();
+
     } catch (error) {
-      console.error('❌ [Attendance Service] Redis connection failed:', error.message);
+      console.error('❌ [Time Attendance Service] Redis connection failed:', error.message);
       throw error;
     }
+  }
+
+  async setupServiceSubscriptions() {
+    try {
+      // Subscribe to Frappe employee data updates
+      await this.subscribers.get('frappe').subscribe(process.env.REDIS_FRAPPE_CHANNEL, (message) => {
+        this.handleFrappeEvent(message);
+      });
+
+      // Subscribe to notification service status
+      await this.subscribers.get('notification').subscribe(process.env.REDIS_NOTIFICATION_CHANNEL, (message) => {
+        this.handleNotificationEvent(message);
+      });
+
+      console.log('✅ [Time Attendance Service] Service subscriptions setup complete');
+    } catch (error) {
+      console.error('❌ [Time Attendance Service] Failed to setup service subscriptions:', error);
+    }
+  }
+
+  async handleFrappeEvent(message) {
+    try {
+      const data = JSON.parse(message);
+      console.log('📥 [Time Attendance Service] Received Frappe event:', data);
+
+      // Handle different Frappe event types
+      switch (data.type) {
+        case 'employee_created':
+          await this.handleEmployeeCreated(data);
+          break;
+        case 'employee_updated':
+          await this.handleEmployeeUpdated(data);
+          break;
+        case 'employee_deleted':
+          await this.handleEmployeeDeleted(data);
+          break;
+        default:
+          console.log('📥 [Time Attendance Service] Unknown Frappe event type:', data.type);
+      }
+    } catch (error) {
+      console.error('❌ [Time Attendance Service] Error handling Frappe event:', error);
+    }
+  }
+
+  async handleNotificationEvent(message) {
+    try {
+      const data = JSON.parse(message);
+      console.log('📢 [Time Attendance Service] Received notification event:', data);
+
+      // Handle different notification types
+      switch (data.type) {
+        case 'notification_sent':
+          await this.handleNotificationSent(data);
+          break;
+        case 'notification_failed':
+          await this.handleNotificationFailed(data);
+          break;
+        default:
+          console.log('📢 [Time Attendance Service] Unknown notification type:', data.type);
+      }
+    } catch (error) {
+      console.error('❌ [Time Attendance Service] Error handling notification event:', error);
+    }
+  }
+
+  async handleEmployeeCreated(data) {
+    console.log('👤 [Time Attendance Service] Employee created:', data.employee_code);
+  }
+
+  async handleEmployeeUpdated(data) {
+    console.log('👤 [Time Attendance Service] Employee updated:', data.employee_code);
+  }
+
+  async handleEmployeeDeleted(data) {
+    console.log('👤 [Time Attendance Service] Employee deleted:', data.employee_code);
+  }
+
+  async handleNotificationSent(data) {
+    console.log('📢 [Time Attendance Service] Notification sent:', data);
+  }
+
+  async handleNotificationFailed(data) {
+    console.log('❌ [Time Attendance Service] Notification failed:', data);
+  }
+
+  // Publish events to other services
+  async publishToService(service, eventType, data) {
+    try {
+      const publisher = this.publishers.get(service);
+      if (!publisher) {
+        throw new Error(`Publisher not found for service: ${service}`);
+      }
+
+      const message = {
+        service: 'time-attendance-service',
+        type: eventType,
+        data: data,
+        timestamp: new Date().toISOString()
+      };
+
+      const channel = this.getChannelForService(service);
+      await publisher.publish(channel, JSON.stringify(message));
+      
+      console.log(`📤 [Time Attendance Service] Published ${eventType} to ${service}`);
+    } catch (error) {
+      console.error(`❌ [Time Attendance Service] Failed to publish to ${service}:`, error);
+    }
+  }
+
+  getChannelForService(service) {
+    const channels = {
+      'notification': process.env.REDIS_NOTIFICATION_CHANNEL,
+      'frappe': process.env.REDIS_FRAPPE_CHANNEL,
+      'attendance': process.env.REDIS_ATTENDANCE_CHANNEL
+    };
+    return channels[service] || process.env.REDIS_ATTENDANCE_CHANNEL;
+  }
+
+  // Enhanced attendance event publishing
+  async publishAttendanceEvent(eventType, data) {
+    await this.publishToService('notification', eventType, {
+      ...data,
+      source: 'time-attendance-service'
+    });
+  }
+
+  async publishFrappeEvent(eventType, data) {
+    await this.publishToService('frappe', eventType, {
+      ...data,
+      source: 'time-attendance-service'
+    });
   }
 
   async set(key, value, ttl = null) {
@@ -118,19 +296,19 @@ class RedisClient {
     });
   }
 
-  // Cache methods for attendance data
-  async cacheAttendanceRecord(employeeCode, date, record) {
-    const key = `attendance:${employeeCode}:${date}`;
+  // Cache methods for time attendance data
+  async cacheTimeAttendanceRecord(employeeCode, date, record) {
+    const key = `time_attendance:${employeeCode}:${date}`;
     await this.set(key, record, 3600); // Cache for 1 hour
   }
 
-  async getCachedAttendanceRecord(employeeCode, date) {
-    const key = `attendance:${employeeCode}:${date}`;
+  async getCachedTimeAttendanceRecord(employeeCode, date) {
+    const key = `time_attendance:${employeeCode}:${date}`;
     return await this.get(key);
   }
 
-  async invalidateAttendanceCache(employeeCode, date) {
-    const key = `attendance:${employeeCode}:${date}`;
+  async invalidateTimeAttendanceCache(employeeCode, date) {
+    const key = `time_attendance:${employeeCode}:${date}`;
     await this.del(key);
   }
 
@@ -149,12 +327,67 @@ class RedisClient {
     return await this.get(key);
   }
 
+  // Inter-service communication methods
+  async publishToNotificationService(eventData) {
+    const message = {
+      service: 'time-attendance-service',
+      event: 'time_attendance_recorded',
+      timestamp: new Date().toISOString(),
+      data: eventData
+    };
+    
+    await this.publish('notification:events', message);
+    console.log('📤 [Time Attendance Service] Published to notification service:', message);
+  }
+
+  async publishToFrappeService(eventData) {
+    const message = {
+      service: 'time-attendance-service',
+      event: 'employee_attendance_update',
+      timestamp: new Date().toISOString(),
+      data: eventData
+    };
+    
+    await this.publish('frappe:events', message);
+    console.log('📤 [Time Attendance Service] Published to Frappe service:', message);
+  }
+
+  // Subscribe to external service events
+  async subscribeToFrappeEvents(callback) {
+    await this.subscribe('frappe:employee_data', (message) => {
+      console.log('📥 [Time Attendance Service] Received Frappe employee data:', message);
+      callback(message);
+    });
+  }
+
+  async subscribeToNotificationEvents(callback) {
+    await this.subscribe('notification:status', (message) => {
+      console.log('📥 [Time Attendance Service] Received notification status:', message);
+      callback(message);
+    });
+  }
+
   getPubClient() {
     return this.pubClient;
   }
 
   getSubClient() {
     return this.subClient;
+  }
+
+  async disconnect() {
+    if (this.client) await this.client.disconnect();
+    if (this.pubClient) await this.pubClient.disconnect();
+    if (this.subClient) await this.subClient.disconnect();
+    
+    // Disconnect all publishers and subscribers
+    for (const [name, client] of this.publishers) {
+      await client.disconnect();
+    }
+    
+    for (const [name, client] of this.subscribers) {
+      await client.disconnect();
+    }
   }
 }
 

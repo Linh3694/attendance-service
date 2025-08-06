@@ -25,23 +25,23 @@ const io = new Server(server, {
 // Setup Redis adapter for Socket.IO clustering
 (async () => {
   try {
-    console.log('🔗 [Attendance Service] Setting up Redis adapter...');
+    console.log('🔗 [Time Attendance Service] Setting up Redis adapter...');
     await redisClient.connect();
     
     io.adapter(createAdapter(redisClient.getPubClient(), redisClient.getSubClient()));
-    console.log('✅ [Attendance Service] Redis adapter setup complete');
+    console.log('✅ [Time Attendance Service] Redis adapter setup complete');
   } catch (error) {
-    console.warn('⚠️ [Attendance Service] Redis adapter setup failed:', error.message);
-    console.warn('⚠️ [Attendance Service] Continuing without Redis adapter (single instance)');
+    console.warn('⚠️ [Time Attendance Service] Redis adapter setup failed:', error.message);
+    console.warn('⚠️ [Time Attendance Service] Continuing without Redis adapter (single instance)');
   }
 })();
 
-// Connect to MariaDB
+// Connect to MongoDB
 const connectDB = async () => {
   try {
     await database.connect();
   } catch (error) {
-    console.error('❌ [Attendance Service] Database connection failed:', error.message);
+    console.error('❌ [Time Attendance Service] Database connection failed:', error.message);
     process.exit(1);
   }
 };
@@ -60,7 +60,7 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Add service info to all responses
 app.use((req, res, next) => {
-  res.setHeader('X-Service', 'attendance-service');
+  res.setHeader('X-Service', 'time-attendance-service');
   res.setHeader('X-Service-Version', '1.0.0');
   next();
 });
@@ -69,7 +69,7 @@ app.use((req, res, next) => {
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'ok', 
-    service: 'attendance-service',
+    service: 'time-attendance-service',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     database: 'connected',
@@ -78,48 +78,42 @@ app.get('/health', (req, res) => {
 });
 
 // Import routes
-const attendanceRoutes = require('./routes/attendanceRoutes');
 const timeAttendanceRoutes = require('./routes/timeAttendanceRoutes');
 
 // Use routes
-app.use("/api/attendance", attendanceRoutes);
 app.use("/api/time-attendance", timeAttendanceRoutes);
-
-// Frappe-compatible API endpoints
-app.use("/api/method", attendanceRoutes); // For Frappe method calls
-app.use("/api/resource", attendanceRoutes); // For Frappe resource API
 
 // Socket.IO event handlers
 io.on('connection', (socket) => {
-  console.log('🔌 [Attendance Service] Client connected:', socket.id);
+  console.log('🔌 [Time Attendance Service] Client connected:', socket.id);
   
   socket.on('disconnect', () => {
-    console.log('🔌 [Attendance Service] Client disconnected:', socket.id);
+    console.log('🔌 [Time Attendance Service] Client disconnected:', socket.id);
   });
   
-  // Handle attendance events
-  socket.on('attendance_update', async (data) => {
-    console.log('📊 [Attendance Service] Attendance update:', data);
+  // Handle time attendance events
+  socket.on('time_attendance_update', async (data) => {
+    console.log('📊 [Time Attendance Service] Time attendance update:', data);
     
     try {
-      // Process attendance data
+      // Process time attendance data
       const { employeeCode, timestamp, deviceId } = data;
       
       // Broadcast to all connected clients
-      io.emit('attendance_updated', {
+      io.emit('time_attendance_updated', {
         employeeCode,
         timestamp,
         deviceId,
         processed: true,
-        service: 'attendance-service'
+        service: 'time-attendance-service'
       });
       
       // Cache the event
-      await redisClient.publish('attendance:updates', data);
+      await redisClient.publish('time_attendance:updates', data);
       
     } catch (error) {
-      console.error('❌ [Attendance Service] Error processing attendance update:', error);
-      socket.emit('attendance_error', { error: error.message });
+      console.error('❌ [Time Attendance Service] Error processing time attendance update:', error);
+      socket.emit('time_attendance_error', { error: error.message });
     }
   });
   
@@ -137,13 +131,34 @@ io.on('connection', (socket) => {
   });
 });
 
+// Subscribe to external service events
+(async () => {
+  try {
+    // Subscribe to Frappe employee data updates
+    await redisClient.subscribeToFrappeEvents((message) => {
+      console.log('📥 [Time Attendance Service] Received Frappe employee data:', message);
+      // Handle employee data updates from Frappe
+    });
+
+    // Subscribe to notification service status
+    await redisClient.subscribeToNotificationEvents((message) => {
+      console.log('📥 [Time Attendance Service] Received notification status:', message);
+      // Handle notification service status updates
+    });
+
+    console.log('✅ [Time Attendance Service] Subscribed to external service events');
+  } catch (error) {
+    console.warn('⚠️ [Time Attendance Service] Failed to subscribe to external events:', error.message);
+  }
+})();
+
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('❌ [Attendance Service] Error:', err);
+  console.error('❌ [Time Attendance Service] Error:', err);
   res.status(500).json({ 
     error: 'Internal server error',
     message: err.message,
-    service: 'attendance-service'
+    service: 'time-attendance-service'
   });
 });
 
@@ -151,24 +166,26 @@ app.use((err, req, res, next) => {
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Endpoint not found',
-    service: 'attendance-service',
+    service: 'time-attendance-service',
     path: req.originalUrl
   });
 });
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('🛑 [Attendance Service] Received SIGTERM, shutting down gracefully...');
-  server.close(() => {
-    console.log('🛑 [Attendance Service] HTTP server closed');
+  console.log('🛑 [Time Attendance Service] Received SIGTERM, shutting down gracefully...');
+  server.close(async () => {
+    await database.close();
+    console.log('🛑 [Time Attendance Service] HTTP server closed');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', async () => {
-  console.log('🛑 [Attendance Service] Received SIGINT, shutting down gracefully...');
-  server.close(() => {
-    console.log('🛑 [Attendance Service] HTTP server closed');
+  console.log('🛑 [Time Attendance Service] Received SIGINT, shutting down gracefully...');
+  server.close(async () => {
+    await database.close();
+    console.log('🛑 [Time Attendance Service] HTTP server closed');
     process.exit(0);
   });
 });
@@ -176,8 +193,8 @@ process.on('SIGINT', async () => {
 // Start server
 const PORT = process.env.PORT || 5002;
 server.listen(PORT, () => {
-  console.log(`🚀 [Attendance Service] Server running on port ${PORT}`);
-  console.log(`🌐 [Attendance Service] Health check: http://localhost:${PORT}/health`);
+  console.log(`🚀 [Time Attendance Service] Server running on port ${PORT}`);
+  console.log(`🌐 [Time Attendance Service] Health check: http://localhost:${PORT}/health`);
 });
 
 // Connect to database

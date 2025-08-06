@@ -1,58 +1,14 @@
 const database = require('../config/database');
 const redisClient = require('../config/redis');
 const moment = require('moment');
-const attendanceController = require('./attendanceController');
 
-class HikvisionController {
-  // Check if event is too old (configurable threshold)
-  isEventTooOld(timestamp, maxAgeHours = 24) {
-    try {
-      const eventTime = moment(timestamp);
-      const now = moment();
-      const hoursDiff = now.diff(eventTime, 'hours');
-      
-      return hoursDiff > maxAgeHours;
-    } catch (error) {
-      console.error('Error checking event age:', error);
-      return false;
-    }
-  }
-
-  // Parse Hikvision timestamp with timezone handling
-  parseHikvisionTimestamp(timestamp) {
-    try {
-      // Handle different timestamp formats from Hikvision
-      let parsedTime;
-      
-      if (typeof timestamp === 'string') {
-        // Format: "2024-01-15T08:30:00.000Z" or "2024-01-15 08:30:00"
-        parsedTime = moment(timestamp);
-        
-        // If no timezone info, assume local timezone
-        if (!timestamp.includes('Z') && !timestamp.includes('+') && !timestamp.includes('-')) {
-          parsedTime = moment.tz(timestamp, process.env.TIMEZONE || 'Asia/Ho_Chi_Minh');
-        }
-      } else {
-        parsedTime = moment(timestamp);
-      }
-
-      if (!parsedTime.isValid()) {
-        throw new Error('Invalid timestamp format');
-      }
-
-      return parsedTime;
-    } catch (error) {
-      console.error('Error parsing timestamp:', timestamp, error);
-      throw new Error(`Invalid timestamp format: ${timestamp}`);
-    }
-  }
-
-  // Handle Hikvision event webhook
-  async handleHikvisionEvent(req, res) {
+class TimeAttendanceController {
+  // Process Hikvision attendance event
+  async processHikvisionEvent(req, res) {
     try {
       const eventData = req.body;
       
-      console.log('📡 [Attendance Service] Received Hikvision event:', JSON.stringify(eventData, null, 2));
+      console.log('📡 [Time Attendance Service] Received Hikvision event:', JSON.stringify(eventData, null, 2));
 
       let recordsProcessed = 0;
       let recordsSkipped = 0;
@@ -82,8 +38,7 @@ class HikvisionController {
             if (employeeCode && timestamp) {
               const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
               
-              // Use existing attendance controller logic
-              await this.processAttendanceEvent({
+              await this.processTimeAttendanceEvent({
                 employee_code: employeeCode,
                 timestamp: parsedTimestamp.toISOString(),
                 device_id: postDeviceId,
@@ -127,7 +82,7 @@ class HikvisionController {
           } else if (employeeCode && timestamp) {
             const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
             
-            await this.processAttendanceEvent({
+            await this.processTimeAttendanceEvent({
               employee_code: employeeCode,
               timestamp: parsedTimestamp.toISOString(),
               device_id: postDeviceId,
@@ -168,7 +123,7 @@ class HikvisionController {
           } else if (employeeCode && timestamp) {
             const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
             
-            await this.processAttendanceEvent({
+            await this.processTimeAttendanceEvent({
               employee_code: employeeCode,
               timestamp: parsedTimestamp.toISOString(),
               device_id: deviceId,
@@ -200,7 +155,7 @@ class HikvisionController {
       // Response
       const response = {
         status: 'success',
-        message: `Processed ${recordsProcessed} attendance events from Hikvision`,
+        message: `Processed ${recordsProcessed} time attendance events from Hikvision`,
         timestamp: new Date().toISOString(),
         eventType,
         eventState,
@@ -214,12 +169,12 @@ class HikvisionController {
         response.message += ` with ${errors.length} errors`;
       }
 
-      console.log(`📊 [Attendance Service] ${response.message}`);
+      console.log(`📊 [Time Attendance Service] ${response.message}`);
       
       res.json(response);
 
     } catch (error) {
-      console.error('❌ [Attendance Service] Error handling Hikvision event:', error);
+      console.error('❌ [Time Attendance Service] Error handling Hikvision event:', error);
       res.status(500).json({
         status: 'error',
         message: 'Failed to process Hikvision event',
@@ -275,8 +230,8 @@ class HikvisionController {
             continue;
           }
 
-          // Process attendance event
-          await this.processAttendanceEvent({
+          // Process time attendance event
+          await this.processTimeAttendanceEvent({
             employee_code: fingerprintCode,
             timestamp: parsedTimestamp.toISOString(),
             device_id: device_id,
@@ -324,47 +279,17 @@ class HikvisionController {
     }
   }
 
-  // Process individual attendance event (shared logic)
-  async processAttendanceEvent(eventData) {
+  // Process individual time attendance event
+  async processTimeAttendanceEvent(eventData) {
     const { employee_code, timestamp, device_id, metadata = null } = eventData;
 
     // Find or create day record
     const dateObj = moment(timestamp).format('YYYY-MM-DD');
     
-    let record = await database.getAll('ERP Time Attendance', {
-      employee_code: employee_code,
-      date: dateObj
-    });
+    let record = await database.findOrCreateTimeAttendance(employee_code, dateObj);
 
-    if (record.length === 0) {
-      // Create new record
-      const newRecord = {
-        name: `TIME-ATT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        employee_code: employee_code,
-        date: dateObj,
-        device_id: device_id || null,
-        raw_data: JSON.stringify([]),
-        total_check_ins: 0,
-        status: 'active',
-        creation: new Date().toISOString(),
-        modified: new Date().toISOString(),
-        owner: 'Administrator',
-        modified_by: 'Administrator'
-      };
-
-      await database.insert('ERP Time Attendance', newRecord);
-      record = [newRecord];
-    }
-
-    const attendanceRecord = record[0];
-    
     // Parse raw_data
-    let rawData = [];
-    try {
-      rawData = JSON.parse(attendanceRecord.raw_data || '[]');
-    } catch (e) {
-      rawData = [];
-    }
+    let rawData = record.raw_data || [];
 
     // Check for duplicates within 30 seconds
     const checkTime = moment(timestamp);
@@ -376,7 +301,7 @@ class HikvisionController {
     });
 
     if (isDuplicate) {
-      console.log(`⚠️ Duplicate attendance detected for ${employee_code} within 30 seconds, skipping`);
+      console.log(`⚠️ Duplicate time attendance detected for ${employee_code} within 30 seconds, skipping`);
       return;
     }
 
@@ -396,13 +321,13 @@ class HikvisionController {
 
     // Update check-in/check-out times using smart logic
     const updatedTimes = this.updateCheckInOutTimes(
-      attendanceRecord.check_in_time,
-      attendanceRecord.check_out_time,
+      record.check_in_time,
+      record.check_out_time,
       checkTime
     );
 
     // Build notes from metadata
-    let notes = attendanceRecord.notes || '';
+    let notes = record.notes || '';
     if (metadata) {
       if (metadata.face_id) {
         notes += `Face ID: ${metadata.face_id}; `;
@@ -417,24 +342,198 @@ class HikvisionController {
 
     // Update record
     const updateData = {
-      raw_data: JSON.stringify(rawData),
+      raw_data: rawData,
       total_check_ins: rawData.length,
-      check_in_time: updatedTimes.checkIn ? updatedTimes.checkIn.toISOString() : attendanceRecord.check_in_time,
-      check_out_time: updatedTimes.checkOut ? updatedTimes.checkOut.toISOString() : attendanceRecord.check_out_time,
+      check_in_time: updatedTimes.checkIn ? updatedTimes.checkIn.toISOString() : record.check_in_time,
+      check_out_time: updatedTimes.checkOut ? updatedTimes.checkOut.toISOString() : record.check_out_time,
+      device_id: device_id || record.device_id,
       notes: notes.trim(),
-      modified: new Date().toISOString(),
-      modified_by: 'Administrator'
+      status: 'active'
     };
 
-    await database.update('ERP Time Attendance', attendanceRecord.name, updateData);
+    await database.updateTimeAttendance(employee_code, dateObj, updateData);
 
     // Invalidate cache
-    await redisClient.invalidateAttendanceCache(employee_code, dateObj);
+    await redisClient.invalidateTimeAttendanceCache(employee_code, dateObj);
 
-    console.log(`✅ Updated attendance record for ${employee_code} on ${dateObj}`);
+    // Publish to external services using new Redis pub/sub
+    const eventPayload = {
+      employee_code,
+      date: dateObj,
+      check_in_time: updatedTimes.checkIn,
+      check_out_time: updatedTimes.checkOut,
+      total_check_ins: rawData.length,
+      device_id,
+      metadata
+    };
+
+    // Publish to Notification service
+    await redisClient.publishAttendanceEvent('time_attendance_recorded', eventPayload);
+
+    // Publish to Frappe service
+    await redisClient.publishFrappeEvent('employee_attendance_update', eventPayload);
+
+    console.log(`✅ Updated time attendance record for ${employee_code} on ${dateObj}`);
   }
 
-  // Smart logic to determine check-in vs check-out (from workspace-backend)
+  // Get time attendance statistics
+  async getTimeAttendanceStats(req, res) {
+    try {
+      const { start_date, end_date, employee_code, limit = 100 } = req.query;
+      
+      const records = await database.getTimeAttendanceStats(start_date, end_date, employee_code);
+
+      // Group by employee for statistics
+      const stats = {};
+      records.forEach(record => {
+        if (!stats[record.employee_code]) {
+          stats[record.employee_code] = {
+            employee_code: record.employee_code,
+            total_days: 0,
+            total_check_ins: 0,
+            avg_check_ins: 0,
+            first_date: null,
+            last_date: null,
+            records: []
+          };
+        }
+
+        const stat = stats[record.employee_code];
+        stat.total_days++;
+        stat.total_check_ins += record.total_check_ins || 0;
+        stat.records.push(record);
+
+        if (!stat.first_date || record.date < stat.first_date) {
+          stat.first_date = record.date;
+        }
+        if (!stat.last_date || record.date > stat.last_date) {
+          stat.last_date = record.date;
+        }
+      });
+
+      // Calculate averages
+      Object.values(stats).forEach(stat => {
+        stat.avg_check_ins = stat.total_days > 0 ? (stat.total_check_ins / stat.total_days).toFixed(2) : 0;
+      });
+
+      res.json({
+        message: Object.values(stats),
+        status: 'success',
+        total_employees: Object.keys(stats).length,
+        total_records: records.length
+      });
+
+    } catch (error) {
+      console.error('Error in getTimeAttendanceStats:', error);
+      res.status(500).json({
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  // Get time attendance records for a specific employee
+  async getEmployeeTimeAttendance(req, res) {
+    try {
+      const { employee_code } = req.params;
+      const { start_date, end_date, limit = 50 } = req.query;
+
+      const records = await database.getTimeAttendanceByEmployee(
+        employee_code, 
+        start_date, 
+        end_date, 
+        parseInt(limit)
+      );
+
+      res.json({
+        message: records,
+        status: 'success',
+        employee_code,
+        total_records: records.length
+      });
+
+    } catch (error) {
+      console.error('Error in getEmployeeTimeAttendance:', error);
+      res.status(500).json({
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  // Get event processing statistics
+  async getProcessingStats(req, res) {
+    try {
+      const { start_date, end_date } = req.query;
+      
+      // Get processing stats from Redis
+      const stats = await redisClient.hGetAll('hikvision:stats');
+      
+      // Get recent records from database
+      const recentRecords = await database.getTimeAttendanceStats(start_date, end_date);
+
+      res.json({
+        status: 'success',
+        message: {
+          processing_stats: stats,
+          recent_records: recentRecords.slice(0, 100),
+          total_recent: recentRecords.length
+        }
+      });
+
+    } catch (error) {
+      console.error('Error in getProcessingStats:', error);
+      res.status(500).json({
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  // Check if event is too old (configurable threshold)
+  isEventTooOld(timestamp, maxAgeHours = 24) {
+    try {
+      const eventTime = moment(timestamp);
+      const now = moment();
+      const hoursDiff = now.diff(eventTime, 'hours');
+      
+      return hoursDiff > maxAgeHours;
+    } catch (error) {
+      console.error('Error checking event age:', error);
+      return false;
+    }
+  }
+
+  // Parse Hikvision timestamp with timezone handling
+  parseHikvisionTimestamp(timestamp) {
+    try {
+      // Handle different timestamp formats from Hikvision
+      let parsedTime;
+      
+      if (typeof timestamp === 'string') {
+        // Format: "2024-01-15T08:30:00.000Z" or "2024-01-15 08:30:00"
+        parsedTime = moment(timestamp);
+        
+        // If no timezone info, assume local timezone
+        if (!timestamp.includes('Z') && !timestamp.includes('+') && !timestamp.includes('-')) {
+          parsedTime = moment.tz(timestamp, process.env.TIMEZONE || 'Asia/Ho_Chi_Minh');
+        }
+      } else {
+        parsedTime = moment(timestamp);
+      }
+
+      if (!parsedTime.isValid()) {
+        throw new Error('Invalid timestamp format');
+      }
+
+      return parsedTime;
+    } catch (error) {
+      console.error('Error parsing timestamp:', timestamp, error);
+      throw new Error(`Invalid timestamp format: ${timestamp}`);
+    }
+  }
+
+  // Smart logic to determine check-in vs check-out
   updateCheckInOutTimes(currentCheckIn, currentCheckOut, newTime) {
     const currentHour = newTime.hour();
     
@@ -483,45 +582,6 @@ class HikvisionController {
       checkOut: checkOut
     };
   }
-
-  // Get event processing statistics
-  async getProcessingStats(req, res) {
-    try {
-      const { start_date, end_date } = req.query;
-      
-      // Get processing stats from Redis
-      const stats = await redisClient.hGetAll('hikvision:stats');
-      
-      // Get recent events from database
-      const filters = {};
-      if (start_date && end_date) {
-        filters.modified = ['between', start_date, end_date];
-      }
-      
-      const recentRecords = await database.getAll('ERP Time Attendance', 
-        filters, 
-        ['employee_code', 'date', 'total_check_ins', 'device_id', 'modified'],
-        'modified DESC',
-        100
-      );
-
-      res.json({
-        status: 'success',
-        message: {
-          processing_stats: stats,
-          recent_records: recentRecords,
-          total_recent: recentRecords.length
-        }
-      });
-
-    } catch (error) {
-      console.error('Error in getProcessingStats:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        message: error.message
-      });
-    }
-  }
 }
 
-module.exports = new HikvisionController();
+module.exports = new TimeAttendanceController(); 

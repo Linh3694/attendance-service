@@ -1,144 +1,164 @@
-const mysql = require('mysql2/promise');
+const { MongoClient } = require('mongodb');
 require('dotenv').config({ path: './config.env' });
 
 class Database {
   constructor() {
-    this.pool = null;
+    this.client = null;
+    this.db = null;
   }
 
   async connect() {
     try {
-      this.pool = mysql.createPool({
-        host: process.env.DB_HOST,
-        port: process.env.DB_PORT,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME,
-        waitForConnections: true,
-        connectionLimit: 10,
-        queueLimit: 0,
-        acquireTimeout: 60000,
-        timeout: 60000,
-        reconnect: true
+      this.client = new MongoClient(process.env.MONGODB_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
       });
 
-      // Test connection
-      const connection = await this.pool.getConnection();
-      console.log('✅ [Attendance Service] MariaDB connected successfully');
-      connection.release();
+      await this.client.connect();
+      this.db = this.client.db(process.env.MONGODB_DB);
+      
+      console.log('✅ [Time Attendance Service] MongoDB connected successfully');
+      
+      // Create indexes for better performance
+      await this.createIndexes();
+      
     } catch (error) {
-      console.error('❌ [Attendance Service] MariaDB connection failed:', error.message);
+      console.error('❌ [Time Attendance Service] MongoDB connection failed:', error.message);
       throw error;
     }
   }
 
-  async query(sql, params = []) {
+  async createIndexes() {
     try {
-      const [rows] = await this.pool.execute(sql, params);
-      return rows;
+      const collection = this.db.collection('time_attendance');
+      
+      // Create indexes for common queries
+      await collection.createIndex({ employee_code: 1, date: 1 }, { unique: true });
+      await collection.createIndex({ date: 1 });
+      await collection.createIndex({ employee_code: 1 });
+      await collection.createIndex({ device_id: 1 });
+      await collection.createIndex({ created_at: -1 });
+      
+      console.log('✅ [Time Attendance Service] Database indexes created');
     } catch (error) {
-      console.error('Database query error:', error);
-      throw error;
+      console.warn('⚠️ [Time Attendance Service] Index creation failed:', error.message);
     }
   }
 
-  async transaction(callback) {
-    const connection = await this.pool.getConnection();
+  async query(collectionName, operation, ...args) {
     try {
-      await connection.beginTransaction();
-      const result = await callback(connection);
-      await connection.commit();
-      return result;
+      const collection = this.db.collection(collectionName);
+      return await operation(collection, ...args);
     } catch (error) {
-      await connection.rollback();
+      console.error('Database operation error:', error);
       throw error;
-    } finally {
-      connection.release();
     }
   }
 
-  // Frappe-style methods
-  async insert(doctype, doc) {
-    const fields = Object.keys(doc);
-    const values = Object.values(doc);
-    const placeholders = fields.map(() => '?').join(',');
-    
-    const sql = `INSERT INTO \`tab${doctype}\` (${fields.map(f => '`' + f + '`').join(',')}) VALUES (${placeholders})`;
-    const result = await this.query(sql, values);
-    return result.insertId;
-  }
+  // Time Attendance specific methods
+  async findOrCreateTimeAttendance(employeeCode, date) {
+    return await this.query('time_attendance', async (collection) => {
+      const dateStr = typeof date === 'string' ? date : date.format('YYYY-MM-DD');
+      
+      let record = await collection.findOne({ 
+        employee_code: employeeCode, 
+        date: dateStr 
+      });
 
-  async update(doctype, name, doc) {
-    const fields = Object.keys(doc);
-    const values = Object.values(doc);
-    const setClause = fields.map(f => '`' + f + '` = ?').join(',');
-    
-    const sql = `UPDATE \`tab${doctype}\` SET ${setClause} WHERE name = ?`;
-    await this.query(sql, [...values, name]);
-  }
+      if (!record) {
+        record = {
+          employee_code: employeeCode,
+          date: dateStr,
+          device_id: null,
+          raw_data: [],
+          total_check_ins: 0,
+          check_in_time: null,
+          check_out_time: null,
+          status: 'active',
+          created_at: new Date(),
+          updated_at: new Date()
+        };
 
-  async get(doctype, name, fields = '*') {
-    const fieldList = Array.isArray(fields) ? fields.map(f => '`' + f + '`').join(',') : fields;
-    const sql = `SELECT ${fieldList} FROM \`tab${doctype}\` WHERE name = ?`;
-    const rows = await this.query(sql, [name]);
-    return rows[0] || null;
-  }
-
-  async getAll(doctype, filters = {}, fields = '*', orderBy = 'modified DESC', limit = null) {
-    const fieldList = Array.isArray(fields) ? fields.map(f => '`' + f + '`').join(',') : fields;
-    let sql = `SELECT ${fieldList} FROM \`tab${doctype}\``;
-    const params = [];
-
-    // Build WHERE clause
-    if (Object.keys(filters).length > 0) {
-      const conditions = [];
-      for (const [key, value] of Object.entries(filters)) {
-        if (Array.isArray(value) && value[0] === 'between') {
-          conditions.push(`\`${key}\` BETWEEN ? AND ?`);
-          params.push(value[1], value[2]);
-        } else if (Array.isArray(value) && value[0] === 'in') {
-          const placeholders = value[1].map(() => '?').join(',');
-          conditions.push(`\`${key}\` IN (${placeholders})`);
-          params.push(...value[1]);
-        } else {
-          conditions.push(`\`${key}\` = ?`);
-          params.push(value);
-        }
+        await collection.insertOne(record);
       }
-      sql += ' WHERE ' + conditions.join(' AND ');
-    }
 
-    // Add ORDER BY
-    if (orderBy) {
-      sql += ` ORDER BY ${orderBy}`;
-    }
-
-    // Add LIMIT
-    if (limit) {
-      sql += ` LIMIT ?`;
-      params.push(limit);
-    }
-
-    return await this.query(sql, params);
+      return record;
+    });
   }
 
-  async delete(doctype, name) {
-    const sql = `DELETE FROM \`tab${doctype}\` WHERE name = ?`;
-    await this.query(sql, [name]);
+  async updateTimeAttendance(employeeCode, date, updateData) {
+    return await this.query('time_attendance', async (collection) => {
+      const dateStr = typeof date === 'string' ? date : date.format('YYYY-MM-DD');
+      
+      const result = await collection.updateOne(
+        { employee_code: employeeCode, date: dateStr },
+        { 
+          $set: { 
+            ...updateData,
+            updated_at: new Date()
+          }
+        }
+      );
+
+      return result;
+    });
   }
 
-  async exists(doctype, filters) {
-    const conditions = [];
-    const params = [];
-    
-    for (const [key, value] of Object.entries(filters)) {
-      conditions.push(`\`${key}\` = ?`);
-      params.push(value);
+  async getTimeAttendance(employeeCode, date) {
+    return await this.query('time_attendance', async (collection) => {
+      const dateStr = typeof date === 'string' ? date : date.format('YYYY-MM-DD');
+      
+      return await collection.findOne({ 
+        employee_code: employeeCode, 
+        date: dateStr 
+      });
+    });
+  }
+
+  async getTimeAttendanceByEmployee(employeeCode, startDate = null, endDate = null, limit = 50) {
+    return await this.query('time_attendance', async (collection) => {
+      const filter = { employee_code: employeeCode };
+      
+      if (startDate && endDate) {
+        filter.date = {
+          $gte: startDate,
+          $lte: endDate
+        };
+      }
+
+      return await collection.find(filter)
+        .sort({ date: -1 })
+        .limit(limit)
+        .toArray();
+    });
+  }
+
+  async getTimeAttendanceStats(startDate = null, endDate = null, employeeCode = null) {
+    return await this.query('time_attendance', async (collection) => {
+      const filter = {};
+      
+      if (startDate && endDate) {
+        filter.date = {
+          $gte: startDate,
+          $lte: endDate
+        };
+      }
+      
+      if (employeeCode) {
+        filter.employee_code = employeeCode;
+      }
+
+      return await collection.find(filter)
+        .sort({ date: -1 })
+        .toArray();
+    });
+  }
+
+  async close() {
+    if (this.client) {
+      await this.client.close();
+      console.log('✅ [Time Attendance Service] MongoDB connection closed');
     }
-    
-    const sql = `SELECT COUNT(*) as count FROM \`tab${doctype}\` WHERE ${conditions.join(' AND ')}`;
-    const result = await this.query(sql, params);
-    return result[0].count > 0;
   }
 }
 
