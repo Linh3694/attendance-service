@@ -28,8 +28,16 @@ const io = new Server(server, {
     console.log('🔗 [Time Attendance Service] Setting up Redis adapter...');
     await redisClient.connect();
     
-    io.adapter(createAdapter(redisClient.getPubClient(), redisClient.getSubClient()));
-    console.log('✅ [Time Attendance Service] Redis adapter setup complete');
+    // Create Redis adapter with proper clients
+    const pubClient = redisClient.getPubClient();
+    const subClient = redisClient.getSubClient();
+    
+    if (pubClient && subClient) {
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log('✅ [Time Attendance Service] Redis adapter setup complete');
+    } else {
+      console.warn('⚠️ [Time Attendance Service] Redis clients not available, continuing without adapter');
+    }
   } catch (error) {
     console.warn('⚠️ [Time Attendance Service] Redis adapter setup failed:', error.message);
     console.warn('⚠️ [Time Attendance Service] Continuing without Redis adapter (single instance)');

@@ -34,8 +34,6 @@ const logRequest = (req, res, next) => {
 };
 
 // Time attendance routes
-router.post('/find-or-create', timeAttendanceController.findOrCreateTimeAttendance.bind(timeAttendanceController));
-router.post('/update', timeAttendanceController.updateTimeAttendance.bind(timeAttendanceController));
 router.get('/stats', timeAttendanceController.getTimeAttendanceStats.bind(timeAttendanceController));
 router.get('/employee/:employee_code', timeAttendanceController.getEmployeeTimeAttendance.bind(timeAttendanceController));
 
