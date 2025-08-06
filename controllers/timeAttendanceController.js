@@ -1208,4 +1208,14 @@ class TimeAttendanceController {
   }
 }
 
-module.exports = new TimeAttendanceController(); 
+const controller = new TimeAttendanceController();
+
+// Bind all methods to preserve 'this' context
+const boundController = {};
+for (const method of Object.getOwnPropertyNames(Object.getPrototypeOf(controller))) {
+  if (method !== 'constructor' && typeof controller[method] === 'function') {
+    boundController[method] = controller[method].bind(controller);
+  }
+}
+
+module.exports = boundController; 
