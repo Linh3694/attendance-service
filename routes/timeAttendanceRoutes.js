@@ -99,7 +99,8 @@ router.post("/test-hikvision-event", timeAttendanceController.testHikvisionEvent
 // Legacy endpoints for compatibility
 router.post("/hikvision/event", 
     logRequest,
-    parseRawBody,
+    upload.any(), // Parse multipart/form-data
+    parseHikvisionData, // Parse Hikvision data format
     timeAttendanceController.processHikvisionEvent
 );
 
@@ -107,7 +108,8 @@ router.post("/hikvision/batch", timeAttendanceController.uploadAttendanceBatch);
 
 router.post("/hikvision", 
     logRequest,
-    parseRawBody,
+    upload.any(), // Parse multipart/form-data
+    parseHikvisionData, // Parse Hikvision data format
     timeAttendanceController.processHikvisionEvent
 );
 
