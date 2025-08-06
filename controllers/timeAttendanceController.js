@@ -19,7 +19,15 @@ class TimeAttendanceController {
     try {
       const eventData = req.body;
       
-      console.log('📡 [Time Attendance Service] Received Hikvision event:', JSON.stringify(eventData, null, 2));
+      console.log(`[${new Date().toISOString()}] === HIKVISION EVENT DEBUG ===`);
+      console.log('📋 Method:', req.method);
+      console.log('📋 URL:', req.url);
+      console.log('📋 Event Type:', eventType);
+      console.log('📋 Event State:', eventState);
+      console.log('📋 Device ID:', deviceId);
+      console.log('📋 DateTime:', dateTime);
+      console.log('📋 Raw Data:', JSON.stringify(eventData, null, 2));
+      console.log('='.repeat(50));
 
       let recordsProcessed = 0;
       let recordsSkipped = 0;
@@ -33,7 +41,8 @@ class TimeAttendanceController {
 
       // Handle AccessControllerEvent specifically
       if (eventData.AccessControllerEvent) {
-        console.log('🔐 Processing AccessControllerEvent:', JSON.stringify(eventData.AccessControllerEvent, null, 2));
+        console.log('🔐 Processing AccessControllerEvent:');
+        console.log('📋 Raw AccessControllerEvent:', JSON.stringify(eventData.AccessControllerEvent, null, 2));
         
         // Parse AccessControllerEvent if it's a JSON string
         let accessEvent = eventData.AccessControllerEvent;
@@ -47,16 +56,19 @@ class TimeAttendanceController {
           }
         }
         
-        const employeeCode = accessEvent.employeeNoString || accessEvent.serialNo || accessEvent.FPID || accessEvent.cardNo || accessEvent.employeeCode;
+        const employeeCode = accessEvent.employeeNoString || accessEvent.serialNo?.toString() || accessEvent.FPID || accessEvent.cardNo || accessEvent.employeeCode;
         const timestamp = accessEvent.dateTime || dateTime;
         
-        console.log('🔐 AccessControllerEvent details:', {
-          serialNo: accessEvent.serialNo,
-          employeeCode: employeeCode,
-          timestamp: timestamp,
-          majorEventType: accessEvent.majorEventType,
-          subEventType: accessEvent.subEventType
-        });
+        console.log('🔐 AccessControllerEvent Details:');
+        console.log('👤 Employee Code:', employeeCode);
+        console.log('👤 Employee Name:', accessEvent.name || 'N/A');
+        console.log('👤 Serial No:', accessEvent.serialNo || 'N/A');
+        console.log('👤 Employee No String:', accessEvent.employeeNoString || 'N/A');
+        console.log('👤 Card No:', accessEvent.cardNo || 'N/A');
+        console.log('⏰ Timestamp:', timestamp);
+        console.log('🏢 Major Event Type:', accessEvent.majorEventType || 'N/A');
+        console.log('🏢 Sub Event Type:', accessEvent.subEventType || 'N/A');
+        console.log('🏢 Device Name:', accessEvent.deviceName || 'N/A');
         
         if (employeeCode && timestamp) {
           // Skip old events
@@ -81,7 +93,7 @@ class TimeAttendanceController {
             });
 
             recordsProcessed++;
-            console.log(`✅ Processed AccessControllerEvent for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+            console.log(`✅ Đã xử lý event cho nhân viên ${employeeCode} lúc ${parsedTimestamp.toISOString()}`);
           }
         } else {
           errors.push({
@@ -107,13 +119,14 @@ class TimeAttendanceController {
           response.message += ` with ${errors.length} errors`;
         }
 
-        console.log(`📊 [Time Attendance Service] ${response.message}`);
+        console.log(`📊 Kết quả xử lý Hikvision event: ${recordsProcessed} thành công, ${errors.length} lỗi, ${recordsSkipped} bị bỏ qua`);
         return res.json(response);
       }
 
               // Handle EventNotificationAlert format
         if (eventData.EventNotificationAlert) {
-          console.log('📡 Processing EventNotificationAlert:', JSON.stringify(eventData.EventNotificationAlert, null, 2));
+          console.log('📡 Processing EventNotificationAlert:');
+          console.log('📋 Raw EventNotificationAlert:', JSON.stringify(eventData.EventNotificationAlert, null, 2));
           
           // Skip EventNotificationAlert if it's not a face recognition event
           const alertEventType = eventData.EventNotificationAlert.eventType;
@@ -164,7 +177,7 @@ class TimeAttendanceController {
                   });
 
                   recordsProcessed++;
-                  console.log(`✅ Processed EventNotificationAlert for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+                  console.log(`✅ Đã xử lý EventNotificationAlert cho nhân viên ${employeeCode} lúc ${parsedTimestamp.toISOString()}`);
                 } else {
                   errors.push({
                     post,
@@ -208,7 +221,7 @@ class TimeAttendanceController {
                 });
 
                 recordsProcessed++;
-                console.log(`✅ Processed single EventNotificationAlert for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+                                  console.log(`✅ Đã xử lý single EventNotificationAlert cho nhân viên ${employeeCode} lúc ${parsedTimestamp.toISOString()}`);
               } else {
                 errors.push({
                   activePost: alertActivePost,
