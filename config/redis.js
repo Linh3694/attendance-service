@@ -91,18 +91,25 @@ class RedisClient {
   async setupServiceSubscriptions() {
     try {
       // Subscribe to Frappe employee data updates
-      await this.subscribers.get('frappe').subscribe(process.env.REDIS_FRAPPE_CHANNEL, (message) => {
-        this.handleFrappeEvent(message);
-      });
+      const frappeSubscriber = this.subscribers.get('frappe');
+      if (frappeSubscriber) {
+        await frappeSubscriber.subscribe(process.env.REDIS_FRAPPE_CHANNEL || 'frappe_events', (message) => {
+          this.handleFrappeEvent(message);
+        });
+      }
 
       // Subscribe to notification service status
-      await this.subscribers.get('notification').subscribe(process.env.REDIS_NOTIFICATION_CHANNEL, (message) => {
-        this.handleNotificationEvent(message);
-      });
+      const notificationSubscriber = this.subscribers.get('notification');
+      if (notificationSubscriber) {
+        await notificationSubscriber.subscribe(process.env.REDIS_NOTIFICATION_CHANNEL || 'notification_events', (message) => {
+          this.handleNotificationEvent(message);
+        });
+      }
 
       console.log('✅ [Time Attendance Service] Service subscriptions setup complete');
     } catch (error) {
       console.error('❌ [Time Attendance Service] Failed to setup service subscriptions:', error);
+      // Don't throw error, continue without subscriptions
     }
   }
 

@@ -9,10 +9,7 @@ class Database {
 
   async connect() {
     try {
-      this.client = new MongoClient(process.env.MONGODB_URI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-      });
+      this.client = new MongoClient(process.env.MONGODB_URI);
 
       await this.client.connect();
       this.db = this.client.db(process.env.MONGODB_DB);
