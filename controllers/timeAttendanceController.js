@@ -39,7 +39,9 @@ exports.uploadAttendanceBatch = async (req, res) => {
                 const attendanceRecord = await TimeAttendance.findOrCreateDayRecord(
                     fingerprintCode,
                     timestamp,
-                    device_id
+                    device_id,
+                    record.employeeName, // optional
+                    record.deviceName    // optional
                 );
 
                 // Update tracker_id nếu có
@@ -59,7 +61,18 @@ exports.uploadAttendanceBatch = async (req, res) => {
                     recordsProcessed++;
                 }
 
-                console.log(`✅ Processed batch attendance for ${fingerprintCode} at ${timestamp.toISOString()}`);
+                // Log batch processing
+                const displayDateTime = timestamp.toLocaleString('vi-VN', {
+                    timeZone: 'Asia/Ho_Chi_Minh',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                
+                console.log(`✅ Nhân viên ${record.employeeName || fingerprintCode} đã chấm công lúc ${displayDateTime} tại máy ${record.deviceName || 'Unknown Device'}.`);
 
             } catch (error) {
                 console.error(`Lỗi xử lý record:`, error);
@@ -107,7 +120,7 @@ exports.handleHikvisionEvent = async (req, res) => {
         }
         
         // Extract thông tin từ event notification
-        let eventType, eventState, dateTime, activePost;
+        let eventType, eventState, dateTime, activePost, accessControllerEvent;
         
         if (eventData.EventNotificationAlert) {
             const alert = eventData.EventNotificationAlert;
@@ -115,11 +128,13 @@ exports.handleHikvisionEvent = async (req, res) => {
             eventState = alert.eventState;
             dateTime = alert.dateTime;
             activePost = alert.ActivePost;
+            accessControllerEvent = alert.AccessControllerEvent;
         } else {
             eventType = eventData.eventType;
             eventState = eventData.eventState;
             dateTime = eventData.dateTime;
             activePost = eventData.ActivePost || eventData.activePost;
+            accessControllerEvent = eventData.AccessControllerEvent;
         }
 
         // Chỉ xử lý face recognition events
@@ -146,9 +161,13 @@ exports.handleHikvisionEvent = async (req, res) => {
         let recordsProcessed = 0;
         let errors = [];
 
-        // Xử lý ActivePost data
+        // Xử lý ActivePost hoặc AccessControllerEvent data
         const postsToProcess = [];
-        if (activePost && Array.isArray(activePost)) {
+        
+        // Ưu tiên AccessControllerEvent nếu có (định dạng mới)
+        if (accessControllerEvent) {
+            postsToProcess.push(accessControllerEvent);
+        } else if (activePost && Array.isArray(activePost)) {
             postsToProcess.push(...activePost);
         } else if (activePost) {
             postsToProcess.push(activePost);
@@ -159,10 +178,12 @@ exports.handleHikvisionEvent = async (req, res) => {
 
         for (const post of postsToProcess) {
             try {
-                // Trích xuất thông tin nhân viên
-                const employeeCode = post.FPID || post.cardNo || post.employeeCode || post.userID;
+                // Trích xuất thông tin nhân viên - ưu tiên employeeNoString
+                const employeeCode = post.employeeNoString || post.FPID || post.cardNo || post.employeeCode || post.userID;
+                const employeeName = post.name; // Tên nhân viên
                 const timestamp = post.dateTime || dateTime;
                 const deviceId = post.ipAddress || eventData.ipAddress || post.deviceID;
+                const deviceName = post.deviceName || 'Unknown Device'; // Tên thiết bị
 
                 if (!employeeCode || !timestamp) {
                     errors.push({
@@ -184,11 +205,13 @@ exports.handleHikvisionEvent = async (req, res) => {
                     continue;
                 }
 
-                // Tìm hoặc tạo attendance record
+                // Tìm hoặc tạo attendance record với employeeName và deviceName
                 const attendanceRecord = await TimeAttendance.findOrCreateDayRecord(
                     employeeCode,
                     parsedTimestamp,
-                    deviceId
+                    deviceId,
+                    employeeName,
+                    deviceName
                 );
 
                 // Thêm metadata từ Hikvision event
@@ -207,18 +230,31 @@ exports.handleHikvisionEvent = async (req, res) => {
                 // Cập nhật thời gian chấm công
                 attendanceRecord.updateAttendanceTime(parsedTimestamp, deviceId);
 
-                // Lưu record
+                // Lưu record vào database
                 await attendanceRecord.save();
                 recordsProcessed++;
 
-                console.log(`✅ Processed event for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+                // Log message theo format yêu cầu
+                const displayDateTime = parsedTimestamp.toLocaleString('vi-VN', {
+                    timeZone: 'Asia/Ho_Chi_Minh',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                
+                console.log(`✅ Nhân viên ${employeeName || employeeCode} đã chấm công lúc ${displayDateTime} tại máy ${deviceName}.`);
 
                 // TODO: Publish event to Redis for future Frappe/Notification integration
                 try {
                     await publishAttendanceEvent({
                         employeeCode,
+                        employeeName,
                         timestamp: parsedTimestamp.toISOString(),
                         deviceId,
+                        deviceName,
                         eventType,
                         checkInTime: attendanceRecord.checkInTime,
                         checkOutTime: attendanceRecord.checkOutTime

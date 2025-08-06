@@ -9,6 +9,12 @@ const timeAttendanceSchema = new mongoose.Schema(
             index: true
         },
 
+        // Tên nhân viên
+        employeeName: {
+            type: String,
+            default: null
+        },
+
         // Ngày chấm công
         date: {
             type: Date,
@@ -36,6 +42,12 @@ const timeAttendanceSchema = new mongoose.Schema(
 
         // ID thiết bị chấm công
         deviceId: {
+            type: String,
+            default: null
+        },
+
+        // Tên thiết bị chấm công
+        deviceName: {
             type: String,
             default: null
         },
@@ -103,7 +115,7 @@ timeAttendanceSchema.methods.updateAttendanceTime = function (timestamp, deviceI
 };
 
 // Static method để tìm hoặc tạo record cho một ngày
-timeAttendanceSchema.statics.findOrCreateDayRecord = async function (employeeCode, date, deviceId) {
+timeAttendanceSchema.statics.findOrCreateDayRecord = async function (employeeCode, date, deviceId, employeeName = null, deviceName = null) {
     // Lấy ngày bắt đầu (00:00:00)
     const dayStart = new Date(date);
     dayStart.setHours(0, 0, 0, 0);
@@ -118,10 +130,20 @@ timeAttendanceSchema.statics.findOrCreateDayRecord = async function (employeeCod
     if (!record) {
         record = new this({
             employeeCode: employeeCode,
+            employeeName: employeeName,
             date: dayStart,
             deviceId: deviceId,
+            deviceName: deviceName,
             rawData: []
         });
+    } else {
+        // Cập nhật employeeName và deviceName nếu có thông tin mới
+        if (employeeName && !record.employeeName) {
+            record.employeeName = employeeName;
+        }
+        if (deviceName && !record.deviceName) {
+            record.deviceName = deviceName;
+        }
     }
 
     return record;
