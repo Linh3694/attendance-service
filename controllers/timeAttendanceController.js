@@ -102,16 +102,10 @@ exports.uploadAttendanceBatch = async (req, res) => {
 // Xử lý real-time event từ máy face ID Hikvision
 exports.handleHikvisionEvent = async (req, res) => {
     try {
-        console.log(`[${new Date().toISOString()}] === HIKVISION EVENT ===`);
-        console.log('Headers:', JSON.stringify(req.headers, null, 2));
-        console.log('Body:', JSON.stringify(req.body, null, 2));
-        console.log('='.repeat(40));
-        
         const eventData = req.body;
         
         // Nếu body rỗng, có thể là heartbeat
         if (!eventData || Object.keys(eventData).length === 0) {
-            console.log('📡 Received heartbeat from Hikvision device');
             return res.status(200).json({
                 status: "success",
                 message: "Heartbeat received",
@@ -143,7 +137,6 @@ exports.handleHikvisionEvent = async (req, res) => {
 
         // Kiểm tra eventType có hợp lệ không
         if (!eventType) {
-            console.log('⚠️ No valid eventType found in event data');
             return res.status(200).json({
                 status: "success", 
                 message: "No valid eventType found",
@@ -154,7 +147,6 @@ exports.handleHikvisionEvent = async (req, res) => {
         // Chỉ xử lý face recognition events
         const validEventTypes = ['faceSnapMatch', 'faceMatch', 'faceRecognition', 'accessControllerEvent', 'AccessControllerEvent'];
         if (!validEventTypes.includes(eventType)) {
-            console.log(`Bỏ qua event type không liên quan: ${eventType}`);
             return res.status(200).json({
                 status: "success",
                 message: `Event type '${eventType}' không được xử lý`,
@@ -164,7 +156,6 @@ exports.handleHikvisionEvent = async (req, res) => {
 
         // Chỉ xử lý active events
         if (eventState !== 'active') {
-            console.log(`Bỏ qua event state: ${eventState}`);
             return res.status(200).json({
                 status: "success",
                 message: `Event state '${eventState}' không được xử lý`,
@@ -199,11 +190,9 @@ exports.handleHikvisionEvent = async (req, res) => {
                 const deviceId = post.ipAddress || eventData.ipAddress || post.deviceID;
                 const deviceName = post.deviceName || eventData.deviceName || 'Unknown Device'; // Tên thiết bị
 
+                // Bỏ qua events không có employee data (device status events, heartbeat)
                 if (!employeeCode || !timestamp) {
-                    errors.push({
-                        post,
-                        error: "Thiếu employeeCode hoặc timestamp"
-                    });
+                    // Không coi đây là lỗi, chỉ là device status event
                     continue;
                 }
 
@@ -301,7 +290,10 @@ exports.handleHikvisionEvent = async (req, res) => {
             response.errors = errors.slice(0, 5);
         }
 
-        console.log(`📊 Hikvision event result: ${recordsProcessed} success, ${errors.length} errors`);
+        // Chỉ log nếu có attendance được xử lý hoặc có lỗi thật sự
+        if (recordsProcessed > 0 || errors.length > 0) {
+            console.log(`📊 Processed: ${recordsProcessed} attendance events, ${errors.length} errors`);
+        }
 
         res.status(200).json(response);
 

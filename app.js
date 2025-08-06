@@ -54,23 +54,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Request logging middleware
+// Request logging middleware - chỉ log những request quan trọng
 app.use((req, res, next) => {
-  const start = Date.now();
-  
-  console.log(`📥 [Attendance Service] ${req.method} ${req.url}`);
-  
-  if (req.method === 'POST' && req.body) {
-    console.log(`📥 [Attendance Service] Body:`, JSON.stringify(req.body, null, 2));
+  // Chỉ log health check và errors
+  if (req.url === '/health' || req.method !== 'POST') {
+    console.log(`📥 [Attendance Service] ${req.method} ${req.url}`);
   }
-  
-  // Log response time
-  const originalSend = res.send;
-  res.send = function(data) {
-    const duration = Date.now() - start;
-    console.log(`📤 [Attendance Service] ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
-    originalSend.call(this, data);
-  };
   
   next();
 });

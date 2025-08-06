@@ -6,19 +6,10 @@ const timeAttendanceController = require('../controllers/timeAttendanceControlle
 // Cấu hình multer để handle multipart/form-data từ máy Hikvision
 const upload = multer();
 
-// Middleware để log requests
-const logRequest = (req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-    next();
-};
-
 // Middleware để handle multipart form data từ Hikvision
 const parseHikvisionData = (req, res, next) => {
     if (req.path.includes('hikvision')) {
-        console.log('📦 Parsing Hikvision multipart data...');
-        console.log('Fields received:', req.body);
-        
-        // Nếu có dữ liệu trong form fields, parse thành JSON
+        // Parse JSON data từ form fields nếu có
         if (req.body && Object.keys(req.body).length > 0) {
             try {
                 // Hikvision có thể gửi JSON trong một field cụ thể
@@ -26,7 +17,6 @@ const parseHikvisionData = (req, res, next) => {
                     try {
                         const parsed = JSON.parse(req.body[key]);
                         req.body = parsed;
-                        console.log('✅ Successfully parsed JSON from field:', key);
                         break;
                     } catch (e) {
                         // Không phải JSON, giữ nguyên
@@ -34,15 +24,14 @@ const parseHikvisionData = (req, res, next) => {
                     }
                 }
             } catch (error) {
-                console.log('❌ Error parsing multipart data:', error.message);
+                // Silent fail, giữ body nguyên
             }
         }
     }
     next();
 };
 
-// Apply global middleware
-router.use(logRequest);
+// Apply global middleware cho parsing
 
 /**
  * POST /api/attendance/hikvision-event
