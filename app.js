@@ -73,6 +73,38 @@ app.use((req, res, next) => {
   next();
 });
 
+// Detailed request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  
+  console.log(`📥 [Time Attendance Service] ${req.method} ${req.url}`);
+  console.log(`📥 [Time Attendance Service] Headers:`, {
+    'user-agent': req.headers['user-agent'],
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length'],
+    'x-forwarded-for': req.headers['x-forwarded-for'],
+    'x-real-ip': req.headers['x-real-ip']
+  });
+  
+  // Log request body for POST requests
+  if (req.method === 'POST' && req.body) {
+    console.log(`📥 [Time Attendance Service] Request Body:`, JSON.stringify(req.body, null, 2));
+  }
+  
+  // Log response
+  const originalSend = res.send;
+  res.send = function(data) {
+    const duration = Date.now() - start;
+    console.log(`📤 [Time Attendance Service] ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+    if (data) {
+      console.log(`📤 [Time Attendance Service] Response:`, JSON.stringify(data, null, 2));
+    }
+    originalSend.call(this, data);
+  };
+  
+  next();
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ 
@@ -85,11 +117,41 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test endpoint for Hikvision connectivity
+app.post('/test-hikvision', (req, res) => {
+  console.log('🧪 [Time Attendance Service] Test endpoint hit!');
+  console.log('🧪 [Time Attendance Service] Headers:', req.headers);
+  console.log('🧪 [Time Attendance Service] Body:', req.body);
+  
+  res.status(200).json({
+    status: 'success',
+    message: 'Test endpoint working!',
+    timestamp: new Date().toISOString(),
+    received_data: {
+      headers: req.headers,
+      body: req.body,
+      method: req.method,
+      url: req.url
+    }
+  });
+});
+
+// Test GET endpoint
+app.get('/test', (req, res) => {
+  console.log('🧪 [Time Attendance Service] GET test endpoint hit!');
+  res.status(200).json({
+    status: 'success',
+    message: 'GET test endpoint working!',
+    timestamp: new Date().toISOString(),
+    service: 'time-attendance-service'
+  });
+});
+
 // Import routes
 const timeAttendanceRoutes = require('./routes/timeAttendanceRoutes');
 
 // Use routes
-app.use("/api/time-attendance", timeAttendanceRoutes);
+app.use("/api/attendance", timeAttendanceRoutes);
 
 // Socket.IO event handlers
 io.on('connection', (socket) => {
