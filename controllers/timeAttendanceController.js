@@ -35,9 +35,20 @@ class TimeAttendanceController {
       if (eventData.AccessControllerEvent) {
         console.log('🔐 Processing AccessControllerEvent:', JSON.stringify(eventData.AccessControllerEvent, null, 2));
         
-        const accessEvent = eventData.AccessControllerEvent;
-        const employeeCode = accessEvent.serialNo || accessEvent.FPID || accessEvent.cardNo || accessEvent.employeeCode;
-        const timestamp = dateTime;
+        // Parse AccessControllerEvent if it's a JSON string
+        let accessEvent = eventData.AccessControllerEvent;
+        if (typeof accessEvent === 'string') {
+          try {
+            accessEvent = JSON.parse(accessEvent);
+            console.log('✅ Successfully parsed AccessControllerEvent JSON string');
+          } catch (error) {
+            console.error('❌ Error parsing AccessControllerEvent JSON:', error);
+            accessEvent = {};
+          }
+        }
+        
+        const employeeCode = accessEvent.employeeNoString || accessEvent.serialNo || accessEvent.FPID || accessEvent.cardNo || accessEvent.employeeCode;
+        const timestamp = accessEvent.dateTime || dateTime;
         
         console.log('🔐 AccessControllerEvent details:', {
           serialNo: accessEvent.serialNo,
