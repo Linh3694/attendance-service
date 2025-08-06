@@ -1,6 +1,7 @@
 const database = require('../config/database');
 const redisClient = require('../config/redis');
 const moment = require('moment');
+require('moment-timezone');
 
 // Timestamp khi server start - chỉ nhận events sau thời điểm này
 const SERVER_START_TIME = new Date();
@@ -10,39 +11,7 @@ console.log(`📅 Only processing events newer than: ${SERVER_START_TIME.toISOSt
 // Cấu hình: ignore events cũ hơn X phút (tính từ lúc nhận)
 const IGNORE_EVENTS_OLDER_THAN_MINUTES = 1440; // 24 giờ = 1440 phút
 
-// Helper function để kiểm tra event có quá cũ không
-const isEventTooOld = (eventTimestamp) => {
-    if (!eventTimestamp) return false;
-    
-    try {
-        const eventTime = new Date(eventTimestamp);
-        const now = new Date();
-        
-        // Sử dụng global variables nếu có, fallback về constants
-        const serverStartTime = global.SERVER_START_TIME || SERVER_START_TIME;
-        const ignoreMinutes = global.IGNORE_EVENTS_OLDER_THAN_MINUTES || IGNORE_EVENTS_OLDER_THAN_MINUTES;
-        
-        // Kiểm tra event có trước khi server start không
-        if (eventTime < serverStartTime) {
-            console.log(`⏰ Event from ${eventTime.toISOString()} is before server start time (${serverStartTime.toISOString()}), skipping`);
-            return true;
-        }
-        
-        // Kiểm tra event có quá cũ không (hơn X phút)
-        const diffInMinutes = (now - eventTime) / (1000 * 60);
-        if (diffInMinutes > ignoreMinutes) {
-            console.log(`⏰ Event from ${eventTime.toISOString()} is ${diffInMinutes.toFixed(1)} minutes old (limit: ${ignoreMinutes}min), skipping`);
-            return true;
-        }
-        
-        console.log(`✅ Event from ${eventTime.toISOString()} is fresh (${diffInMinutes.toFixed(1)} minutes old, limit: ${ignoreMinutes}min)`);
-        return false;
-        
-    } catch (error) {
-        console.log(`❌ Invalid timestamp format: ${eventTimestamp}`);
-        return false; // Nếu không parse được timestamp, vẫn xử lý
-    }
-};
+
 
 class TimeAttendanceController {
   // Process Hikvision attendance event
@@ -62,8 +31,190 @@ class TimeAttendanceController {
       const dateTime = eventData.dateTime || eventData.timestamp;
       const deviceId = eventData.ipAddress || eventData.deviceId || eventData.sim;
 
-      // Process ActivePost array (face recognition events)
-      if (eventData.ActivePost && Array.isArray(eventData.ActivePost)) {
+      // Handle AccessControllerEvent specifically
+      if (eventData.AccessControllerEvent) {
+        console.log('🔐 Processing AccessControllerEvent:', JSON.stringify(eventData.AccessControllerEvent, null, 2));
+        
+        const accessEvent = eventData.AccessControllerEvent;
+        const employeeCode = accessEvent.serialNo || accessEvent.FPID || accessEvent.cardNo || accessEvent.employeeCode;
+        const timestamp = dateTime;
+        
+        console.log('🔐 AccessControllerEvent details:', {
+          serialNo: accessEvent.serialNo,
+          employeeCode: employeeCode,
+          timestamp: timestamp,
+          majorEventType: accessEvent.majorEventType,
+          subEventType: accessEvent.subEventType
+        });
+        
+        if (employeeCode && timestamp) {
+          // Skip old events
+          if (this.isEventTooOld(timestamp)) {
+            console.log(`⏰ Skipping old AccessControllerEvent for employee ${employeeCode} at ${timestamp}`);
+            recordsSkipped++;
+          } else {
+            const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
+            
+            await this.processTimeAttendanceEvent({
+              employee_code: employeeCode.toString(),
+              timestamp: parsedTimestamp.toISOString(),
+              device_id: deviceId,
+              metadata: {
+                event_type: 'AccessControllerEvent',
+                event_state: eventState,
+                major_event_type: accessEvent.majorEventType,
+                sub_event_type: accessEvent.subEventType,
+                device_name: accessEvent.deviceName,
+                hikvision_data: accessEvent
+              }
+            });
+
+            recordsProcessed++;
+            console.log(`✅ Processed AccessControllerEvent for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+          }
+        } else {
+          errors.push({
+            accessEvent,
+            error: 'Missing employeeCode or timestamp in AccessControllerEvent'
+          });
+        }
+        
+        // Response for AccessControllerEvent
+        const response = {
+          status: 'success',
+          message: `Processed ${recordsProcessed} AccessControllerEvent`,
+          timestamp: new Date().toISOString(),
+          eventType: 'AccessControllerEvent',
+          eventState,
+          recordsProcessed,
+          recordsSkipped,
+          totalErrors: errors.length
+        };
+
+        if (errors.length > 0) {
+          response.errors = errors.slice(0, 5);
+          response.message += ` with ${errors.length} errors`;
+        }
+
+        console.log(`📊 [Time Attendance Service] ${response.message}`);
+        return res.json(response);
+      }
+
+              // Handle EventNotificationAlert format
+        if (eventData.EventNotificationAlert) {
+          console.log('📡 Processing EventNotificationAlert:', JSON.stringify(eventData.EventNotificationAlert, null, 2));
+          
+          // Skip EventNotificationAlert if it's not a face recognition event
+          const alertEventType = eventData.EventNotificationAlert.eventType;
+          if (alertEventType && !['faceSnapMatch', 'faceMatch', 'faceRecognition'].includes(alertEventType)) {
+            console.log(`⏭️ Skipping EventNotificationAlert with eventType: ${alertEventType}`);
+            return res.json({
+              status: 'success',
+              message: `Skipped EventNotificationAlert with eventType: ${alertEventType}`,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          const alert = eventData.EventNotificationAlert;
+          const finalAlertEventType = alert.eventType || eventType;
+          const alertEventState = alert.eventState || eventState;
+          const alertDateTime = alert.dateTime || dateTime;
+          const alertActivePost = alert.ActivePost;
+          
+          // Process ActivePost from EventNotificationAlert
+          if (alertActivePost && Array.isArray(alertActivePost)) {
+            for (const post of alertActivePost) {
+              try {
+                const employeeCode = post.FPID || post.cardNo || post.employeeCode || post.userID;
+                const timestamp = post.dateTime || alertDateTime;
+                const postDeviceId = post.ipAddress || deviceId || post.deviceID;
+
+                // Skip old events
+                if (this.isEventTooOld(timestamp)) {
+                  console.log(`⏰ Skipping old EventNotificationAlert for employee ${employeeCode} at ${timestamp}`);
+                  recordsSkipped++;
+                  continue;
+                }
+
+                if (employeeCode && timestamp) {
+                  const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
+                  
+                  await this.processTimeAttendanceEvent({
+                    employee_code: employeeCode,
+                    timestamp: parsedTimestamp.toISOString(),
+                    device_id: postDeviceId,
+                    metadata: {
+                      face_id: post.name,
+                      similarity: post.similarity,
+                      event_type: finalAlertEventType,
+                      event_state: alertEventState,
+                      hikvision_data: post
+                    }
+                  });
+
+                  recordsProcessed++;
+                  console.log(`✅ Processed EventNotificationAlert for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+                } else {
+                  errors.push({
+                    post,
+                    error: 'Missing employeeCode or timestamp in EventNotificationAlert ActivePost'
+                  });
+                }
+              } catch (error) {
+                console.error(`❌ Error processing EventNotificationAlert ActivePost:`, error);
+                errors.push({
+                  post,
+                  error: error.message
+                });
+              }
+            }
+          }
+          // Process single ActivePost from EventNotificationAlert
+          else if (alertActivePost && !Array.isArray(alertActivePost)) {
+            try {
+              const activePost = alertActivePost;
+              const employeeCode = activePost.FPID || activePost.cardNo || activePost.employeeCode || activePost.userID;
+              const timestamp = activePost.dateTime || alertDateTime;
+              const postDeviceId = activePost.ipAddress || deviceId || activePost.deviceID;
+
+              if (this.isEventTooOld(timestamp)) {
+                console.log(`⏰ Skipping old single EventNotificationAlert for employee ${employeeCode} at ${timestamp}`);
+                recordsSkipped++;
+              } else if (employeeCode && timestamp) {
+                const parsedTimestamp = this.parseHikvisionTimestamp(timestamp);
+                
+                await this.processTimeAttendanceEvent({
+                  employee_code: employeeCode,
+                  timestamp: parsedTimestamp.toISOString(),
+                  device_id: postDeviceId,
+                  metadata: {
+                    face_id: activePost.name,
+                    similarity: activePost.similarity,
+                    event_type: finalAlertEventType,
+                    event_state: alertEventState,
+                    hikvision_data: activePost
+                  }
+                });
+
+                recordsProcessed++;
+                console.log(`✅ Processed single EventNotificationAlert for employee ${employeeCode} at ${parsedTimestamp.toISOString()}`);
+              } else {
+                errors.push({
+                  activePost: alertActivePost,
+                  error: 'Missing employeeCode or timestamp in single EventNotificationAlert ActivePost'
+                });
+              }
+            } catch (error) {
+              console.error(`❌ Error processing single EventNotificationAlert ActivePost:`, error);
+              errors.push({
+                activePost: alertActivePost,
+                error: error.message
+              });
+            }
+          }
+        }
+        // Process ActivePost array (face recognition events)
+        else if (eventData.ActivePost && Array.isArray(eventData.ActivePost)) {
         for (const post of eventData.ActivePost) {
           try {
             const employeeCode = post.FPID || post.cardNo || post.employeeCode || post.userID;
@@ -71,7 +222,7 @@ class TimeAttendanceController {
             const postDeviceId = post.ipAddress || deviceId || post.deviceID;
 
             // Skip old events
-            if (isEventTooOld(timestamp)) {
+            if (this.isEventTooOld(timestamp)) {
               console.log(`⏰ Skipping old event for employee ${employeeCode} at ${timestamp}`);
               recordsSkipped++;
               continue;
@@ -118,7 +269,7 @@ class TimeAttendanceController {
           const timestamp = activePost.dateTime || dateTime;
           const postDeviceId = activePost.ipAddress || deviceId || activePost.deviceID;
 
-          if (isEventTooOld(timestamp)) {
+          if (this.isEventTooOld(timestamp)) {
             console.log(`⏰ Skipping old single post for employee ${employeeCode} at ${timestamp}`);
             recordsSkipped++;
           } else if (employeeCode && timestamp) {
@@ -159,7 +310,7 @@ class TimeAttendanceController {
           const employeeCode = eventData.employeeCode || eventData.FPID || eventData.cardNo || eventData.userID;
           const timestamp = dateTime;
           
-          if (isEventTooOld(timestamp)) {
+          if (this.isEventTooOld(timestamp)) {
             console.log(`⏰ Skipping old root level event for employee ${employeeCode} at ${timestamp}`);
             recordsSkipped++;
           } else if (employeeCode && timestamp) {
@@ -228,7 +379,17 @@ class TimeAttendanceController {
 
   // Handle Hikvision event (alias for processHikvisionEvent)
   async handleHikvisionEvent(req, res) {
-    return this.processHikvisionEvent(req, res);
+    try {
+      return await this.processHikvisionEvent(req, res);
+    } catch (error) {
+      console.error('❌ Error in handleHikvisionEvent:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to handle Hikvision event',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
   }
 
   // Upload batch attendance data from Hikvision device
@@ -272,7 +433,7 @@ class TimeAttendanceController {
           }
 
           // Skip old events
-          if (isEventTooOld(parsedTimestamp)) {
+          if (this.isEventTooOld(parsedTimestamp)) {
             console.log(`⏰ Skipping old batch record for ${fingerprintCode} at ${dateTime}`);
             continue;
           }
@@ -929,16 +1090,36 @@ class TimeAttendanceController {
   }
 
   // Check if event is too old (configurable threshold)
-  isEventTooOld(timestamp, maxAgeHours = 24) {
+  isEventTooOld(eventTimestamp) {
+    if (!eventTimestamp) return false;
+    
     try {
-      const eventTime = moment(timestamp);
-      const now = moment();
-      const hoursDiff = now.diff(eventTime, 'hours');
+      const eventTime = new Date(eventTimestamp);
+      const now = new Date();
       
-      return hoursDiff > maxAgeHours;
-    } catch (error) {
-      console.error('Error checking event age:', error);
+      // Sử dụng global variables nếu có, fallback về constants
+      const serverStartTime = global.SERVER_START_TIME || SERVER_START_TIME;
+      const ignoreMinutes = global.IGNORE_EVENTS_OLDER_THAN_MINUTES || IGNORE_EVENTS_OLDER_THAN_MINUTES;
+      
+      // Kiểm tra event có trước khi server start không
+      if (eventTime < serverStartTime) {
+        console.log(`⏰ Event from ${eventTime.toISOString()} is before server start time (${serverStartTime.toISOString()}), skipping`);
+        return true;
+      }
+      
+      // Kiểm tra event có quá cũ không (hơn X phút)
+      const diffInMinutes = (now - eventTime) / (1000 * 60);
+      if (diffInMinutes > ignoreMinutes) {
+        console.log(`⏰ Event from ${eventTime.toISOString()} is ${diffInMinutes.toFixed(1)} minutes old (limit: ${ignoreMinutes}min), skipping`);
+        return true;
+      }
+      
+      console.log(`✅ Event from ${eventTime.toISOString()} is fresh (${diffInMinutes.toFixed(1)} minutes old, limit: ${ignoreMinutes}min)`);
       return false;
+      
+    } catch (error) {
+      console.log(`❌ Invalid timestamp format: ${eventTimestamp}`);
+      return false; // Nếu không parse được timestamp, vẫn xử lý
     }
   }
 
@@ -949,12 +1130,17 @@ class TimeAttendanceController {
       let parsedTime;
       
       if (typeof timestamp === 'string') {
-        // Format: "2024-01-15T08:30:00.000Z" or "2024-01-15 08:30:00"
+        // Format: "2024-01-15T08:30:00.000Z" or "2024-01-15 08:30:00" or "2025-06-08T10:42:24+07:00"
         parsedTime = moment(timestamp);
         
         // If no timezone info, assume local timezone
         if (!timestamp.includes('Z') && !timestamp.includes('+') && !timestamp.includes('-')) {
-          parsedTime = moment.tz(timestamp, process.env.TIMEZONE || 'Asia/Ho_Chi_Minh');
+          try {
+            parsedTime = moment.tz(timestamp, process.env.TIMEZONE || 'Asia/Ho_Chi_Minh');
+          } catch (tzError) {
+            // Fallback to regular moment if timezone parsing fails
+            parsedTime = moment(timestamp);
+          }
         }
       } else {
         parsedTime = moment(timestamp);
