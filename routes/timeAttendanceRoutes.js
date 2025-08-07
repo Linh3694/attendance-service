@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const timeAttendanceController = require('../controllers/timeAttendanceController');
+const { authenticateToken } = require('../middleware/auth');
 
 // Cấu hình multer để handle multipart/form-data từ máy Hikvision
 const upload = multer();
@@ -44,6 +45,14 @@ router.post("/hikvision-event",
     parseHikvisionData, // Parse Hikvision data format
     timeAttendanceController.handleHikvisionEvent
 );
+
+/**
+ * GET /api/attendance/employee/:employeeCode
+ * Lấy dữ liệu chấm công của nhân viên theo employeeCode
+ * Query params: date, startDate, endDate, includeRawData, page, limit
+ * Requires authentication
+ */
+router.get("/employee/:employeeCode", authenticateToken, timeAttendanceController.getEmployeeAttendance);
 
 /**
  * POST /api/attendance/upload

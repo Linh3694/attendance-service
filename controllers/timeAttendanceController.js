@@ -308,6 +308,131 @@ exports.handleHikvisionEvent = async (req, res) => {
     }
 };
 
+// Lấy dữ liệu attendance của nhân viên theo employeeCode
+exports.getEmployeeAttendance = async (req, res) => {
+    try {
+        const { employeeCode } = req.params;
+        const { 
+            date, 
+            startDate, 
+            endDate, 
+            includeRawData = 'false',
+            page = 1,
+            limit = 100
+        } = req.query;
+
+        if (!employeeCode) {
+            return res.status(400).json({
+                status: "error",
+                message: "employeeCode là bắt buộc"
+            });
+        }
+
+        // Xây dựng query
+        const query = { employeeCode };
+
+        // Xử lý filter theo ngày
+        if (date) {
+            // Lấy dữ liệu cho một ngày cụ thể
+            const targetDate = new Date(date);
+            if (isNaN(targetDate.getTime())) {
+                return res.status(400).json({
+                    status: "error",
+                    message: "Định dạng ngày không hợp lệ"
+                });
+            }
+
+            const dayStart = new Date(targetDate);
+            dayStart.setHours(0, 0, 0, 0);
+            
+            query.date = dayStart;
+        } else if (startDate || endDate) {
+            // Lấy dữ liệu theo khoảng thời gian
+            query.date = {};
+            
+            if (startDate) {
+                const start = new Date(startDate);
+                if (!isNaN(start.getTime())) {
+                    start.setHours(0, 0, 0, 0);
+                    query.date.$gte = start;
+                }
+            }
+            
+            if (endDate) {
+                const end = new Date(endDate);
+                if (!isNaN(end.getTime())) {
+                    end.setHours(23, 59, 59, 999);
+                    query.date.$lte = end;
+                }
+            }
+        }
+
+        // Pagination
+        const pageNum = Math.max(1, parseInt(page));
+        const limitNum = Math.max(1, Math.min(parseInt(limit), 500)); // Max 500 records
+        const skip = (pageNum - 1) * limitNum;
+
+        // Thực hiện query với pagination
+        let attendanceQuery = TimeAttendance.find(query)
+            .sort({ date: -1 }) // Sắp xếp theo ngày mới nhất
+            .skip(skip)
+            .limit(limitNum);
+
+        // Loại bỏ rawData nếu không cần
+        if (includeRawData.toLowerCase() !== 'true') {
+            attendanceQuery = attendanceQuery.select('-rawData');
+        }
+
+        const records = await attendanceQuery.exec();
+
+        // Đếm tổng số records để phân trang
+        const totalRecords = await TimeAttendance.countDocuments(query);
+        const totalPages = Math.ceil(totalRecords / limitNum);
+        const hasMore = pageNum < totalPages;
+
+        // Format response theo cấu trúc mà mobile app mong đợi
+        const response = {
+            status: "success",
+            data: {
+                records: records.map(record => ({
+                    _id: record._id,
+                    employeeCode: record.employeeCode,
+                    date: record.date.toISOString().split('T')[0], // YYYY-MM-DD format
+                    checkInTime: record.checkInTime,
+                    checkOutTime: record.checkOutTime,
+                    totalCheckIns: record.totalCheckIns,
+                    status: record.status,
+                    user: record.employeeName ? {
+                        fullname: record.employeeName,
+                        employeeCode: record.employeeCode
+                    } : undefined,
+                    rawData: includeRawData.toLowerCase() === 'true' ? record.rawData : undefined
+                })).filter(r => r.user !== undefined || includeRawData.toLowerCase() === 'true' || r.checkInTime || r.checkOutTime), // Chỉ trả records có data
+                pagination: {
+                    currentPage: pageNum,
+                    totalPages: totalPages,
+                    totalRecords: totalRecords,
+                    hasMore: hasMore
+                }
+            },
+            timestamp: new Date().toISOString()
+        };
+
+        console.log(`📊 Retrieved ${records.length} attendance records for employee ${employeeCode}`);
+
+        res.status(200).json(response);
+
+    } catch (error) {
+        console.error("❌ Error retrieving employee attendance:", error);
+        res.status(500).json({
+            status: "error",
+            message: "Lỗi server khi lấy dữ liệu chấm công",
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+};
+
 // Helper function để publish attendance event tới Redis (cho tương lai)
 async function publishAttendanceEvent(eventData) {
     try {
