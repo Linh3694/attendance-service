@@ -89,4 +89,68 @@ router.get("/health", (req, res) => {
     });
 });
 
+/**
+ * POST /api/attendance/test/fake-attendance
+ * Test endpoint để gửi fake attendance và trigger notification
+ * Body: { employeeCode, employeeName, deviceName }
+ */
+router.post("/test/fake-attendance", async (req, res) => {
+    try {
+        const { employeeCode, employeeName, deviceName } = req.body;
+        
+        if (!employeeCode) {
+            return res.status(400).json({
+                status: "error",
+                message: "employeeCode là bắt buộc"
+            });
+        }
+
+        // Tạo fake attendance data
+        const currentTime = new Date();
+        const fakeAttendanceData = {
+            employeeCode: employeeCode || 'TEST001',
+            employeeName: employeeName || 'Test User',
+            timestamp: currentTime.toISOString(),
+            deviceId: 'TEST_DEVICE',
+            deviceName: deviceName || 'Test Face ID Device',
+            eventType: 'test_attendance',
+            displayTime: currentTime.toLocaleString('vi-VN', {
+                timeZone: 'Asia/Ho_Chi_Minh',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            })
+        };
+
+        // Publish fake attendance event để trigger notification
+        const redisClient = require('../config/redis');
+        if (redisClient && redisClient.publishAttendanceEvent) {
+            await redisClient.publishAttendanceEvent('test_attendance_recorded', fakeAttendanceData);
+            console.log(`✅ [Test] Published fake attendance event for ${employeeCode}`);
+        } else {
+            console.warn('⚠️ [Test] Redis client không khả dụng, không thể gửi notification');
+        }
+
+        // Log message
+        console.log(`🧪 [Test] Fake attendance: Nhân viên ${employeeName || employeeCode} đã chấm công lúc ${fakeAttendanceData.displayTime} tại máy ${deviceName || 'Test Device'}.`);
+
+        res.status(200).json({
+            status: "success",
+            message: "Fake attendance event đã được tạo và gửi",
+            data: fakeAttendanceData
+        });
+
+    } catch (error) {
+        console.error("❌ Error creating fake attendance:", error);
+        res.status(500).json({
+            status: "error",
+            message: "Lỗi khi tạo fake attendance event",
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
