@@ -116,9 +116,10 @@ timeAttendanceSchema.methods.updateAttendanceTime = function (timestamp, deviceI
 
 // Static method để tìm hoặc tạo record cho một ngày
 timeAttendanceSchema.statics.findOrCreateDayRecord = async function (employeeCode, date, deviceId, employeeName = null, deviceName = null) {
-    // Lấy ngày bắt đầu (00:00:00)
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
+    // Lấy ngày bắt đầu (00:00:00) theo VN timezone
+    // Chuyển date về VN time trước khi lấy ngày
+    const vnDate = new Date(date);
+    const dayStart = new Date(vnDate.getFullYear(), vnDate.getMonth(), vnDate.getDate(), 0, 0, 0, 0);
 
     // Tìm record hiện có
     let record = await this.findOne({
@@ -149,7 +150,7 @@ timeAttendanceSchema.statics.findOrCreateDayRecord = async function (employeeCod
     return record;
 };
 
-// Static method để parse timestamp từ Hikvision
+// Static method để parse timestamp từ Hikvision và chuyển sang VN Time (+7)
 timeAttendanceSchema.statics.parseAttendanceTimestamp = function (dateTimeString) {
     if (!dateTimeString) {
         throw new Error('DateTime string is required');
@@ -167,7 +168,13 @@ timeAttendanceSchema.statics.parseAttendanceTimestamp = function (dateTimeString
         throw new Error(`Invalid datetime format: ${dateTimeString}`);
     }
 
-    return timestamp;
+    // Chuyển đổi từ UTC sang VN Time (+7 giờ)
+    // Hikvision gửi time dưới dạng UTC, cần chuyển thành VN timezone
+    const vnTime = new Date(timestamp.getTime() + (7 * 60 * 60 * 1000));
+    
+    console.log(`🕐 Timezone conversion: ${dateTimeString} (UTC) → ${vnTime.toISOString()} (VN+7)`);
+    
+    return vnTime;
 };
 
 module.exports = mongoose.model("TimeAttendance", timeAttendanceSchema);

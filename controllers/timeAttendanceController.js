@@ -74,6 +74,26 @@ exports.uploadAttendanceBatch = async (req, res) => {
                 
                 console.log(`✅ Nhân viên ${record.employeeName || fingerprintCode} đã chấm công lúc ${displayDateTime} tại máy ${record.deviceName || 'Unknown Device'}.`);
 
+                // Publish notification for batch attendance 
+                try {
+                    await publishAttendanceEvent({
+                        employeeCode: fingerprintCode,
+                        employeeName: record.employeeName,
+                        timestamp: timestamp.toISOString(),
+                        deviceId: device_id,
+                        deviceName: record.deviceName || 'Unknown Device',
+                        eventType: 'batch_upload',
+                        checkInTime: attendanceRecord.checkInTime ? attendanceRecord.checkInTime.toISOString() : null,
+                        checkOutTime: attendanceRecord.checkOutTime ? attendanceRecord.checkOutTime.toISOString() : null,
+                        totalCheckIns: attendanceRecord.totalCheckIns,
+                        date: attendanceRecord.date.toISOString().split('T')[0],
+                        displayTime: displayDateTime,
+                        trackerId: tracker_id
+                    });
+                } catch (redisError) {
+                    console.warn('⚠️ Redis publish failed for batch:', redisError.message);
+                }
+
             } catch (error) {
                 console.error(`Lỗi xử lý record:`, error);
                 errors.push({ record, error: error.message });
@@ -250,7 +270,7 @@ exports.handleHikvisionEvent = async (req, res) => {
                 
                 console.log(`✅ Nhân viên ${employeeName || employeeCode} đã chấm công lúc ${displayDateTime} tại máy ${deviceName}.`);
 
-                // TODO: Publish event to Redis for future Frappe/Notification integration
+                // Publish event to Redis for Frappe/Notification integration
                 try {
                     await publishAttendanceEvent({
                         employeeCode,
@@ -259,8 +279,19 @@ exports.handleHikvisionEvent = async (req, res) => {
                         deviceId,
                         deviceName,
                         eventType,
-                        checkInTime: attendanceRecord.checkInTime,
-                        checkOutTime: attendanceRecord.checkOutTime
+                        checkInTime: attendanceRecord.checkInTime ? attendanceRecord.checkInTime.toISOString() : null,
+                        checkOutTime: attendanceRecord.checkOutTime ? attendanceRecord.checkOutTime.toISOString() : null,
+                        totalCheckIns: attendanceRecord.totalCheckIns,
+                        date: attendanceRecord.date.toISOString().split('T')[0], // YYYY-MM-DD
+                        displayTime: parsedTimestamp.toLocaleString('vi-VN', {
+                            timeZone: 'Asia/Ho_Chi_Minh',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                        })
                     });
                 } catch (redisError) {
                     console.warn('⚠️ Redis publish failed:', redisError.message);
