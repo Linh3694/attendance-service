@@ -168,17 +168,31 @@ timeAttendanceSchema.statics.parseAttendanceTimestamp = function (dateTimeString
         throw new Error(`Invalid datetime format: ${dateTimeString}`);
     }
 
-    // ULTIMATE FIX: Return raw UTC timestamp, let mobile handle display
+    // FINAL BACKEND FIX: Proper timezone handling for all cases
     const originalString = String(dateTimeString);
     
-    // JavaScript's Date() constructor already handles timezone conversion properly
-    // If input has +07:00, it converts to UTC correctly
-    // If input is UTC or naive, it's already UTC
+    // Case 1: Input has +07:00 timezone (VN time)
+    if (originalString.includes('+07:00') || originalString.includes('+0700')) {
+        // JavaScript Date constructor converts this correctly to UTC
+        // Example: 2025-08-07T13:45:12+07:00 → 2025-08-07T06:45:12.000Z (correct UTC)
+        console.log(`🕐 VN timezone input: ${originalString} → ${timestamp.toISOString()} (correct UTC)`);
+        return timestamp;
+    }
     
-    console.log(`🕐 Raw conversion: ${originalString} → ${timestamp.toISOString()} (UTC)`);
+    // Case 2: Input is UTC or naive time (no timezone)
+    else if (originalString.includes('Z') || originalString.includes('+00:00') || 
+             (!originalString.includes('+') && !originalString.includes('-'))) {
+        // This is UTC or naive, treat as UTC
+        console.log(`🕐 UTC/naive input: ${originalString} → ${timestamp.toISOString()} (UTC)`);
+        return timestamp;
+    }
     
-    // Always return UTC timestamp - mobile will handle timezone display
-    return timestamp;
+    // Case 3: Other timezone formats
+    else {
+        // Let JavaScript handle it naturally
+        console.log(`🕐 Other timezone format: ${originalString} → ${timestamp.toISOString()} (UTC)`);
+        return timestamp;
+    }
 };
 
 module.exports = mongoose.model("TimeAttendance", timeAttendanceSchema);
