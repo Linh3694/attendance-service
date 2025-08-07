@@ -89,6 +89,99 @@ router.get("/health", (req, res) => {
     });
 });
 
+/**
+ * POST /api/attendance/fix-employee/:employeeCode
+ * Fix and recalculate all attendance records for an employee
+ * Fixes check-out time calculation issues
+ */
+router.post("/fix-employee/:employeeCode", async (req, res) => {
+    try {
+        const { employeeCode } = req.params;
+        
+        if (!employeeCode) {
+            return res.status(400).json({
+                status: "error",
+                message: "employeeCode is required"
+            });
+        }
+        
+        const TimeAttendance = require('../models/TimeAttendance');
+        const result = await TimeAttendance.fixAllAttendanceForEmployee(employeeCode);
+        
+        res.status(200).json({
+            status: "success",
+            message: `Fixed attendance records for ${employeeCode}`,
+            data: {
+                employeeCode,
+                fixedRecords: result.fixedCount,
+                totalRecords: result.totalRecords,
+                timestamp: new Date().toISOString()
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error fixing attendance:', error);
+        res.status(500).json({
+            status: "error",
+            message: "Failed to fix attendance records",
+            error: error.message
+        });
+    }
+});
 
+/**
+ * POST /api/attendance/fix-all
+ * Fix all attendance records in the system (use with caution)
+ */
+router.post("/fix-all", async (req, res) => {
+    try {
+        const { confirm } = req.body;
+        
+        if (confirm !== "YES_I_WANT_TO_FIX_ALL_RECORDS") {
+            return res.status(400).json({
+                status: "error",
+                message: "Please confirm by sending { confirm: 'YES_I_WANT_TO_FIX_ALL_RECORDS' }"
+            });
+        }
+        
+        const TimeAttendance = require('../models/TimeAttendance');
+        
+        // Get all unique employee codes
+        const employeeCodes = await TimeAttendance.distinct('employeeCode');
+        let totalFixed = 0;
+        let totalRecords = 0;
+        
+        console.log(`🔧 Starting mass fix for ${employeeCodes.length} employees...`);
+        
+        for (const employeeCode of employeeCodes) {
+            try {
+                const result = await TimeAttendance.fixAllAttendanceForEmployee(employeeCode);
+                totalFixed += result.fixedCount;
+                totalRecords += result.totalRecords;
+            } catch (error) {
+                console.error(`❌ Failed to fix records for ${employeeCode}:`, error);
+            }
+        }
+        
+        res.status(200).json({
+            status: "success",
+            message: "Mass fix completed",
+            data: {
+                employeesProcessed: employeeCodes.length,
+                totalRecordsFixed: totalFixed,
+                totalRecordsProcessed: totalRecords,
+                timestamp: new Date().toISOString()
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error in mass fix:', error);
+        res.status(500).json({
+            status: "error",
+            message: "Failed to perform mass fix",
+            error: error.message
+        });
+    }
+});
 
 module.exports = router;

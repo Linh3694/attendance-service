@@ -84,7 +84,7 @@ timeAttendanceSchema.index({ employeeCode: 1, date: 1 }, { unique: true });
 timeAttendanceSchema.index({ date: -1 });
 timeAttendanceSchema.index({ employeeCode: 1 });
 
-// Method đơn giản để cập nhật thời gian chấm công
+// Method đã sửa để cập nhật thời gian chấm công chính xác
 timeAttendanceSchema.methods.updateAttendanceTime = function (timestamp, deviceId) {
     const checkTime = new Date(timestamp);
     
@@ -95,23 +95,106 @@ timeAttendanceSchema.methods.updateAttendanceTime = function (timestamp, deviceI
         recordedAt: new Date()
     });
 
-    // Logic đơn giản: lần đầu là check-in, lần cuối là check-out
-    if (!this.checkInTime) {
+    // FIXED LOGIC: Recalculate check-in and check-out from ALL rawData
+    // This ensures accuracy even when attendance records arrive out of order
+    
+    if (this.rawData.length === 1) {
+        // First attendance record
         this.checkInTime = checkTime;
+        this.checkOutTime = checkTime; // Same time for single record
         this.totalCheckIns = 1;
     } else {
-        // Nếu thời gian mới sớm hơn check-in hiện tại, cập nhật check-in
-        if (checkTime < this.checkInTime) {
-            this.checkInTime = checkTime;
-        }
-        // Nếu thời gian mới muộn hơn check-out hiện tại (hoặc chưa có check-out), cập nhật check-out
-        if (!this.checkOutTime || checkTime > this.checkOutTime) {
-            this.checkOutTime = checkTime;
-        }
+        // Multiple records: recalculate from all rawData
+        const allTimes = this.rawData.map(item => new Date(item.timestamp));
+        allTimes.sort((a, b) => a.getTime() - b.getTime());
+        
+        // Check-in = earliest time, Check-out = latest time
+        this.checkInTime = allTimes[0];
+        this.checkOutTime = allTimes[allTimes.length - 1];
         this.totalCheckIns = this.rawData.length;
+        
+        console.log(`📊 [TimeAttendance] Recalculated times from ${this.rawData.length} records:`, {
+            checkIn: this.checkInTime.toISOString(),
+            checkOut: this.checkOutTime.toISOString(),
+            totalTimes: allTimes.length
+        });
     }
 
     return this;
+};
+
+// Method để fix và recalculate dữ liệu attendance đã có (dùng để sửa dữ liệu cũ)
+timeAttendanceSchema.methods.recalculateAttendanceTimes = function() {
+    if (!this.rawData || this.rawData.length === 0) {
+        console.log(`⚠️ [TimeAttendance] No rawData to recalculate for ${this.employeeCode}`);
+        return this;
+    }
+    
+    // Remove duplicates from rawData based on timestamp + deviceId
+    const uniqueRawData = [];
+    const seen = new Set();
+    
+    this.rawData.forEach(item => {
+        const key = `${new Date(item.timestamp).getTime()}-${item.deviceId}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueRawData.push(item);
+        }
+    });
+    
+    this.rawData = uniqueRawData;
+    
+    // Recalculate check-in and check-out times
+    if (this.rawData.length === 1) {
+        const time = new Date(this.rawData[0].timestamp);
+        this.checkInTime = time;
+        this.checkOutTime = time;
+        this.totalCheckIns = 1;
+    } else if (this.rawData.length > 1) {
+        const allTimes = this.rawData.map(item => new Date(item.timestamp));
+        allTimes.sort((a, b) => a.getTime() - b.getTime());
+        
+        this.checkInTime = allTimes[0];
+        this.checkOutTime = allTimes[allTimes.length - 1];
+        this.totalCheckIns = this.rawData.length;
+    }
+    
+    console.log(`🔧 [TimeAttendance] Recalculated attendance for ${this.employeeCode}:`, {
+        date: this.date.toISOString().split('T')[0],
+        checkIn: this.checkInTime?.toISOString(),
+        checkOut: this.checkOutTime?.toISOString(),
+        totalRecords: this.rawData.length,
+        deduplicatedRecords: this.rawData.length - (this.rawData.length - uniqueRawData.length)
+    });
+    
+    return this;
+};
+
+// Static method để fix tất cả attendance records của một employee
+timeAttendanceSchema.statics.fixAllAttendanceForEmployee = async function(employeeCode) {
+    try {
+        console.log(`🔧 [TimeAttendance] Fixing all attendance records for ${employeeCode}...`);
+        
+        const records = await this.find({ employeeCode }).sort({ date: -1 });
+        let fixedCount = 0;
+        
+        for (const record of records) {
+            const originalCheckOut = record.checkOutTime?.toISOString();
+            record.recalculateAttendanceTimes();
+            
+            if (originalCheckOut !== record.checkOutTime?.toISOString()) {
+                await record.save();
+                fixedCount++;
+                console.log(`✅ Fixed attendance for ${employeeCode} on ${record.date.toISOString().split('T')[0]}`);
+            }
+        }
+        
+        console.log(`🎉 [TimeAttendance] Fixed ${fixedCount} attendance records for ${employeeCode}`);
+        return { fixedCount, totalRecords: records.length };
+    } catch (error) {
+        console.error(`❌ [TimeAttendance] Error fixing attendance for ${employeeCode}:`, error);
+        throw error;
+    }
 };
 
 // Static method để tìm hoặc tạo record cho một ngày
