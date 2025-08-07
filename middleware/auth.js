@@ -18,10 +18,11 @@ const authenticateToken = async (req, res, next) => {
     const secret = process.env.JWT_SECRET || "default_secret";
     const decoded = jwt.verify(token, secret);
 
-    // Support both token formats: 
+    // Support multiple token formats: 
     // - Web app uses 'id' field
-    // - Parent portal uses 'userId' field
-    const userId = decoded.id || decoded.userId;
+    // - Parent portal uses 'userId' field  
+    // - Frappe JWT uses 'user' field (email)
+    const userId = decoded.id || decoded.userId || decoded.user;
     
     if (!userId) {
       return res.status(401).json({ 
@@ -34,7 +35,7 @@ const authenticateToken = async (req, res, next) => {
     // Store user info from token (không cần database lookup)
     req.user = {
       _id: userId,
-      email: decoded.email || null,
+      email: decoded.email || decoded.user || null, // Support Frappe JWT where 'user' is email
       role: decoded.role || null,
       employeeCode: decoded.employeeCode || null,
       fullname: decoded.fullname || decoded.name || null
