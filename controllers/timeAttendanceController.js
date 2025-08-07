@@ -404,16 +404,13 @@ exports.getEmployeeAttendance = async (req, res) => {
         const skip = (pageNum - 1) * limitNum;
 
         // Thực hiện query với pagination
+        // ALWAYS include rawData for recalculation, but only return it if requested
         let attendanceQuery = TimeAttendance.find(query)
             .sort({ date: -1 }) // Sắp xếp theo ngày mới nhất
             .skip(skip)
             .limit(limitNum);
 
-        // Loại bỏ rawData nếu không cần
-        if (includeRawData.toLowerCase() !== 'true') {
-            attendanceQuery = attendanceQuery.select('-rawData');
-        }
-
+        // Always fetch rawData for accurate recalculation
         const records = await attendanceQuery.exec();
 
         // Đếm tổng số records để phân trang
@@ -425,20 +422,44 @@ exports.getEmployeeAttendance = async (req, res) => {
         const response = {
             status: "success",
             data: {
-                records: records.map(record => ({
-                    _id: record._id,
-                    employeeCode: record.employeeCode,
-                    date: record.date.toISOString().split('T')[0], // YYYY-MM-DD format
-                    checkInTime: record.checkInTime,
-                    checkOutTime: record.checkOutTime,
-                    totalCheckIns: record.totalCheckIns,
-                    status: record.status,
-                    user: record.employeeName ? {
-                        fullname: record.employeeName,
-                        employeeCode: record.employeeCode
-                    } : undefined,
-                    rawData: includeRawData.toLowerCase() === 'true' ? record.rawData : undefined
-                })).filter(r => r.user !== undefined || includeRawData.toLowerCase() === 'true' || r.checkInTime || r.checkOutTime), // Chỉ trả records có data
+                records: records.map(record => {
+                    // RECALCULATE check-in and check-out times from rawData for accuracy
+                    let checkInTime = record.checkInTime;
+                    let checkOutTime = record.checkOutTime;
+                    let totalCheckIns = record.totalCheckIns;
+                    
+                    if (record.rawData && record.rawData.length > 0) {
+                        // Sort all timestamps to get earliest and latest
+                        const allTimes = record.rawData
+                            .map(item => new Date(item.timestamp))
+                            .sort((a, b) => a.getTime() - b.getTime());
+                        
+                        checkInTime = allTimes[0]; // Earliest time = check-in
+                        checkOutTime = allTimes[allTimes.length - 1]; // Latest time = check-out
+                        totalCheckIns = allTimes.length;
+                        
+                        console.log(`📊 [getEmployeeAttendance] Recalculated times for ${record.employeeCode} on ${record.date.toISOString().split('T')[0]}:`, {
+                            checkIn: checkInTime.toISOString(),
+                            checkOut: checkOutTime.toISOString(),
+                            totalTimes: totalCheckIns
+                        });
+                    }
+                    
+                    return {
+                        _id: record._id,
+                        employeeCode: record.employeeCode,
+                        date: record.date.toISOString().split('T')[0], // YYYY-MM-DD format
+                        checkInTime: checkInTime,
+                        checkOutTime: checkOutTime,
+                        totalCheckIns: totalCheckIns,
+                        status: record.status,
+                        user: record.employeeName ? {
+                            fullname: record.employeeName,
+                            employeeCode: record.employeeCode
+                        } : undefined,
+                        rawData: includeRawData.toLowerCase() === 'true' ? record.rawData : undefined
+                    };
+                }).filter(r => r.user !== undefined || includeRawData.toLowerCase() === 'true' || r.checkInTime || r.checkOutTime), // Chỉ trả records có data
                 pagination: {
                     currentPage: pageNum,
                     totalPages: totalPages,
