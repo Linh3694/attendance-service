@@ -168,13 +168,17 @@ timeAttendanceSchema.statics.parseAttendanceTimestamp = function (dateTimeString
         throw new Error(`Invalid datetime format: ${dateTimeString}`);
     }
 
-    // Chuyển đổi từ UTC sang VN Time (+7 giờ)
-    // Hikvision gửi time dưới dạng UTC, cần chuyển thành VN timezone
-    const vnTime = new Date(timestamp.getTime() + (7 * 60 * 60 * 1000));
+    // ULTIMATE FIX: Return raw UTC timestamp, let mobile handle display
+    const originalString = String(dateTimeString);
     
-    console.log(`🕐 Timezone conversion: ${dateTimeString} (UTC) → ${vnTime.toISOString()} (VN+7)`);
+    // JavaScript's Date() constructor already handles timezone conversion properly
+    // If input has +07:00, it converts to UTC correctly
+    // If input is UTC or naive, it's already UTC
     
-    return vnTime;
+    console.log(`🕐 Raw conversion: ${originalString} → ${timestamp.toISOString()} (UTC)`);
+    
+    // Always return UTC timestamp - mobile will handle timezone display
+    return timestamp;
 };
 
 module.exports = mongoose.model("TimeAttendance", timeAttendanceSchema);
