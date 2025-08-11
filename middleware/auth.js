@@ -8,6 +8,7 @@ const authenticateToken = async (req, res, next) => {
     return res.status(401).json({ 
       status: "error",
       message: "Authorization header missing or invalid",
+      code: 'MISSING_TOKEN',
       timestamp: new Date().toISOString()
     });
   }
@@ -44,9 +45,11 @@ const authenticateToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.warn('❌ Token verification failed:', error.message);
+    const code = error.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN';
     return res.status(401).json({ 
       status: "error",
-      message: "Invalid or expired token",
+      message: code === 'TOKEN_EXPIRED' ? 'Token expired' : 'Invalid token',
+      code,
       timestamp: new Date().toISOString()
     });
   }
