@@ -485,6 +485,104 @@ exports.getEmployeeAttendance = async (req, res) => {
     }
 };
 
+// Batch: lấy giờ vào/ra theo danh sách mã trong 1 ngày
+// Body: { date: 'YYYY-MM-DD', codes: string[] }
+exports.getStudentsAttendanceByDay = async (req, res) => {
+    try {
+        const { date, codes } = req.body || {};
+
+        if (!date || !Array.isArray(codes)) {
+            return res.status(400).json({
+                status: "error",
+                message: "Thiếu tham số. Cần { date: 'YYYY-MM-DD', codes: string[] }"
+            });
+        }
+
+        if (codes.length === 0) {
+            return res.status(200).json({
+                status: "success",
+                data: {},
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // Giới hạn kích thước batch để tránh quá tải
+        const MAX_BATCH = 500;
+        if (codes.length > MAX_BATCH) {
+            return res.status(400).json({
+                status: "error",
+                message: `Số lượng mã vượt quá giới hạn ${MAX_BATCH}`
+            });
+        }
+
+        // Chuẩn hoá ngày về 00:00:00 theo VN time như schema
+        const target = new Date(date);
+        if (isNaN(target.getTime())) {
+            return res.status(400).json({
+                status: "error",
+                message: "Định dạng ngày không hợp lệ"
+            });
+        }
+        const dayStart = new Date(target);
+        dayStart.setHours(0, 0, 0, 0);
+
+        // Truy vấn 1 lần cho tất cả mã
+        const records = await TimeAttendance.find({
+            employeeCode: { $in: codes },
+            date: dayStart
+        }).lean(false); // cần document để có thể gọi methods nếu cần
+
+        // Map kết quả theo code
+        const result = {};
+        for (const code of codes) {
+            result[code] = {
+                checkInTime: null,
+                checkOutTime: null,
+                totalCheckIns: 0,
+                employeeName: undefined
+            };
+        }
+
+        for (const rec of records) {
+            // Đảm bảo tính đúng bằng cách tính lại từ rawData khi có
+            let checkInTime = rec.checkInTime;
+            let checkOutTime = rec.checkOutTime;
+            let totalCheckIns = rec.totalCheckIns || 0;
+
+            if (Array.isArray(rec.rawData) && rec.rawData.length > 0) {
+                const allTimes = rec.rawData
+                    .map(item => new Date(item.timestamp))
+                    .sort((a, b) => a.getTime() - b.getTime());
+                checkInTime = allTimes[0];
+                checkOutTime = allTimes[allTimes.length - 1];
+                totalCheckIns = allTimes.length;
+            }
+
+            result[rec.employeeCode] = {
+                checkInTime,
+                checkOutTime,
+                totalCheckIns,
+                employeeName: rec.employeeName || undefined
+            };
+        }
+
+        return res.status(200).json({
+            status: "success",
+            data: result,
+            date: dayStart.toISOString().split('T')[0],
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getStudentsAttendanceByDay:', error);
+        return res.status(500).json({
+            status: "error",
+            message: "Lỗi server khi lấy dữ liệu chấm công theo danh sách",
+            error: error.message
+        });
+    }
+};
+
 // Helper function để publish attendance event tới Redis (cho tương lai)
 async function publishAttendanceEvent(eventData) {
     try {

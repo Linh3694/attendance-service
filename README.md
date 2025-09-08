@@ -57,6 +57,37 @@ npm start
 - `GET /api/time-attendance/employee/:employee_code` - Lấy chấm công của nhân viên
 - `GET /api/time-attendance/hikvision/stats` - Thống kê xử lý events
 
+#### Batch endpoints
+
+- `POST /api/attendance/students/day` (JWT) - Lấy giờ vào/ra theo danh sách mã trong 1 ngày
+
+Request body:
+
+```json
+{
+  "date": "2025-09-07",
+  "codes": ["WS000123", "WS000456"]
+}
+```
+
+Response body:
+
+```json
+{
+  "status": "success",
+  "date": "2025-09-07",
+  "data": {
+    "WS000123": {
+      "checkInTime": "2025-09-07T00:20:15.000Z",
+      "checkOutTime": "2025-09-07T10:22:41.000Z",
+      "totalCheckIns": 3,
+      "employeeName": "Nguyen Van A"
+    },
+    "WS000456": { "checkInTime": null, "checkOutTime": null, "totalCheckIns": 0 }
+  }
+}
+```
+
 ### Legacy Endpoints (for compatibility)
 
 - `POST /api/time-attendance/hikvision` - Legacy Hikvision endpoint

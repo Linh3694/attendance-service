@@ -55,6 +55,14 @@ router.post("/hikvision-event",
 router.get("/employee/:employeeCode", authenticateToken, timeAttendanceController.getEmployeeAttendance);
 
 /**
+ * POST /api/attendance/students/day
+ * Lấy giờ vào/ra theo danh sách mã trong 1 ngày
+ * Body: { date: 'YYYY-MM-DD', codes: string[] }
+ * Requires authentication
+ */
+router.post("/students/day", authenticateToken, timeAttendanceController.getStudentsAttendanceByDay);
+
+/**
  * GET /api/attendance/debug/:employeeCode
  * Debug attendance data - show all rawData timestamps
  * Query params: date (required)
