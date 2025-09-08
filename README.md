@@ -83,7 +83,11 @@ Response body:
       "totalCheckIns": 3,
       "employeeName": "Nguyen Van A"
     },
-    "WS000456": { "checkInTime": null, "checkOutTime": null, "totalCheckIns": 0 }
+    "WS000456": {
+      "checkInTime": null,
+      "checkOutTime": null,
+      "totalCheckIns": 0
+    }
   }
 }
 ```
@@ -177,11 +181,13 @@ CMD ["npm", "start"]
 ## Liên kết với Services khác
 
 ### Notification Service
+
 - Nhận events từ time attendance
 - Gửi thông báo real-time
 - Channel: `notification:events`
 
 ### Frappe Service
+
 - Nhận employee data updates
 - Sync attendance data
 - Channel: `frappe:events`

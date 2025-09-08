@@ -491,6 +491,12 @@ exports.getStudentsAttendanceByDay = async (req, res) => {
     try {
         const { date, codes } = req.body || {};
 
+        console.log(`📥 [Attendance Batch] /students/day request`, {
+            date,
+            codesCount: Array.isArray(codes) ? codes.length : 0,
+            sampleCodes: Array.isArray(codes) ? codes.slice(0, 5) : []
+        });
+
         if (!date || !Array.isArray(codes)) {
             return res.status(400).json({
                 status: "error",
@@ -532,6 +538,12 @@ exports.getStudentsAttendanceByDay = async (req, res) => {
             date: dayStart
         }).lean(false); // cần document để có thể gọi methods nếu cần
 
+        console.log(`📊 [Attendance Batch] Found records`, {
+            date: dayStart.toISOString().split('T')[0],
+            requestedCodes: codes.length,
+            foundRecords: records.length
+        });
+
         // Map kết quả theo code
         const result = {};
         for (const code of codes) {
@@ -565,6 +577,12 @@ exports.getStudentsAttendanceByDay = async (req, res) => {
                 employeeName: rec.employeeName || undefined
             };
         }
+
+        const keys = Object.keys(result);
+        console.log(`📤 [Attendance Batch] Responding result map`, {
+            keys: keys.length,
+            sample: keys.slice(0, 3).reduce((acc, k) => { acc[k] = result[k]; return acc; }, {})
+        });
 
         return res.status(200).json({
             status: "success",
