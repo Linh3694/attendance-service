@@ -54,6 +54,9 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
+// Explicitly handle preflight to include custom headers
+app.options('*', cors(corsOptions));
+
 // Add service info to responses
 app.use((req, res, next) => {
   res.setHeader('X-Service', 'attendance-service');
