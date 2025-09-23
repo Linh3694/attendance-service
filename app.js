@@ -36,7 +36,7 @@ const connectRedis = async () => {
 
 // CORS Configuration
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000','https://wis-staging.wellspring.edu.vn' ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
