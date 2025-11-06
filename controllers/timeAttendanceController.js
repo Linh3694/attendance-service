@@ -620,7 +620,7 @@ exports.getStudentsAttendanceByDay = async (req, res) => {
         return res.status(200).json({
             status: "success",
             data: result,
-            date: dayStart.toISOString().split('T')[0],
+            date: date, // Return the original requested date, not the normalized one
             timestamp: new Date().toISOString()
         });
 
