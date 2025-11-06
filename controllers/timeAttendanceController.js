@@ -1,3 +1,24 @@
+/**
+ * TimeAttendance Controller
+ * 
+ * ⚠️ TIMEZONE FIXES APPLIED:
+ * 
+ * 1. ✅ Unified timezone handling:
+ *    - All date strings (YYYY-MM-DD) are normalized using TimeAttendance.parseAndNormalizeDateString()
+ *    - Ensures consistent date handling regardless of server timezone
+ * 
+ * 2. ✅ Consistent query logic:
+ *    - API Day (/students/day): Uses parseAndNormalizeDateString() for exact date match
+ *    - API Range (/employee/:code): Uses parseAndNormalizeDateString() for $gte/$lte query
+ *    - Both APIs now use same normalization logic
+ * 
+ * 3. ✅ Data integrity:
+ *    - Dates are normalized to VN timezone (+7) before querying
+ *    - Prevents race condition issues from timezone inconsistencies
+ * 
+ * Note: All dates in DB are stored as UTC but represent VN timezone dates.
+ * Example: VN 2025-01-15 00:00:00+07:00 = UTC 2025-01-14T17:00:00Z
+ */
 const TimeAttendance = require("../models/TimeAttendance");
 const redisClient = require('../config/redis');
 
@@ -362,38 +383,49 @@ exports.getEmployeeAttendance = async (req, res) => {
         // Xây dựng query
         const query = { employeeCode };
 
+        // FIXED: Use unified timezone normalization for consistent query logic
         // Xử lý filter theo ngày
         if (date) {
             // Lấy dữ liệu cho một ngày cụ thể
-            const targetDate = new Date(date);
-            if (isNaN(targetDate.getTime())) {
+            try {
+                const dayStart = TimeAttendance.parseAndNormalizeDateString(date);
+                query.date = dayStart;
+            } catch (dateError) {
                 return res.status(400).json({
                     status: "error",
-                    message: "Định dạng ngày không hợp lệ"
+                    message: `Định dạng ngày không hợp lệ: ${dateError.message}`
                 });
             }
-
-            const dayStart = new Date(targetDate);
-            dayStart.setHours(0, 0, 0, 0);
-            
-            query.date = dayStart;
         } else if (startDate || endDate) {
             // Lấy dữ liệu theo khoảng thời gian
             query.date = {};
             
             if (startDate) {
-                const start = new Date(startDate);
-                if (!isNaN(start.getTime())) {
-                    start.setHours(0, 0, 0, 0);
+                try {
+                    // Start of day in VN timezone
+                    const start = TimeAttendance.parseAndNormalizeDateString(startDate);
                     query.date.$gte = start;
+                } catch (dateError) {
+                    return res.status(400).json({
+                        status: "error",
+                        message: `Định dạng ngày bắt đầu không hợp lệ: ${dateError.message}`
+                    });
                 }
             }
             
             if (endDate) {
-                const end = new Date(endDate);
-                if (!isNaN(end.getTime())) {
-                    end.setHours(23, 59, 59, 999);
+                try {
+                    // End of day in VN timezone
+                    // Parse date string and add 23:59:59.999 in VN timezone
+                    const endDayStart = TimeAttendance.parseAndNormalizeDateString(endDate);
+                    // Add 1 day and subtract 1ms to get end of day
+                    const end = new Date(endDayStart.getTime() + (24 * 60 * 60 * 1000) - 1);
                     query.date.$lte = end;
+                } catch (dateError) {
+                    return res.status(400).json({
+                        status: "error",
+                        message: `Định dạng ngày kết thúc không hợp lệ: ${dateError.message}`
+                    });
                 }
             }
         }
@@ -521,16 +553,17 @@ exports.getStudentsAttendanceByDay = async (req, res) => {
             });
         }
 
-        // Chuẩn hoá ngày về 00:00:00 theo VN time như schema
-        const target = new Date(date);
-        if (isNaN(target.getTime())) {
+        // FIXED: Use unified timezone normalization
+        // Parse YYYY-MM-DD string and normalize to VN timezone day start
+        let dayStart;
+        try {
+            dayStart = TimeAttendance.parseAndNormalizeDateString(date);
+        } catch (dateError) {
             return res.status(400).json({
                 status: "error",
-                message: "Định dạng ngày không hợp lệ"
+                message: `Định dạng ngày không hợp lệ: ${dateError.message}`
             });
         }
-        const dayStart = new Date(target);
-        dayStart.setHours(0, 0, 0, 0);
 
         // Truy vấn 1 lần cho tất cả mã
         const records = await TimeAttendance.find({
