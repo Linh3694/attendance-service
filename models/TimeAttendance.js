@@ -201,6 +201,10 @@ timeAttendanceSchema.methods.recalculateAttendanceTimes = function() {
             willChange: originalDate !== correctedDate.toISOString().split('T')[0]
         });
 
+        // FORCE CHANGE for debugging
+        console.log(`🔧 [TimeAttendance] FORCE UPDATING date for ${this.employeeCode}`);
+        this.date = correctedDate;
+
         if (originalDate !== correctedDate.toISOString().split('T')[0]) {
             console.log(`🔧 [TimeAttendance] Correcting date from ${originalDate} to ${correctedDate.toISOString().split('T')[0]} (VN date: ${vnDateString})`);
             this.date = correctedDate;
