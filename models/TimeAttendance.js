@@ -178,6 +178,27 @@ timeAttendanceSchema.methods.recalculateAttendanceTimes = function() {
         this.totalCheckIns = this.rawData.length;
     }
     
+    // FIX DATE FIELD: Recalculate date from checkInTime to get correct VN date
+    if (this.checkInTime) {
+        const originalDate = this.date.toISOString().split('T')[0];
+
+        // Get VN date from checkInTime: UTC timestamp + 7 hours to get VN day
+        const checkInUTC = new Date(this.checkInTime);
+        const checkInVN = new Date(checkInUTC.getTime() + (7 * 60 * 60 * 1000));
+        const vnYear = checkInVN.getUTCFullYear();
+        const vnMonth = checkInVN.getUTCMonth();
+        const vnDay = checkInVN.getUTCDate();
+        const vnDateString = `${vnYear}-${String(vnMonth + 1).padStart(2, '0')}-${String(vnDay).padStart(2, '0')}`;
+
+        // Create correct date object for this VN date
+        const correctedDate = this.constructor.parseAndNormalizeDateString(vnDateString);
+
+        if (originalDate !== correctedDate.toISOString().split('T')[0]) {
+            console.log(`🔧 [TimeAttendance] Correcting date from ${originalDate} to ${correctedDate.toISOString().split('T')[0]} (VN date: ${vnDateString})`);
+            this.date = correctedDate;
+        }
+    }
+
     console.log(`🔧 [TimeAttendance] Recalculated attendance for ${this.employeeCode}:`, {
         date: this.date.toISOString().split('T')[0],
         checkIn: this.checkInTime?.toISOString(),
@@ -185,7 +206,7 @@ timeAttendanceSchema.methods.recalculateAttendanceTimes = function() {
         totalRecords: this.rawData.length,
         deduplicatedRecords: this.rawData.length - (this.rawData.length - uniqueRawData.length)
     });
-    
+
     return this;
 };
 
@@ -199,12 +220,18 @@ timeAttendanceSchema.statics.fixAllAttendanceForEmployee = async function(employ
         
         for (const record of records) {
             const originalCheckOut = record.checkOutTime?.toISOString();
+            const originalDate = record.date.toISOString().split('T')[0];
+
             record.recalculateAttendanceTimes();
-            
-            if (originalCheckOut !== record.checkOutTime?.toISOString()) {
+
+            const newDate = record.date.toISOString().split('T')[0];
+            const checkOutChanged = originalCheckOut !== record.checkOutTime?.toISOString();
+            const dateChanged = originalDate !== newDate;
+
+            if (checkOutChanged || dateChanged) {
                 await record.save();
                 fixedCount++;
-                console.log(`✅ Fixed attendance for ${employeeCode} on ${record.date.toISOString().split('T')[0]}`);
+                console.log(`✅ Fixed attendance for ${employeeCode} on ${newDate}${dateChanged ? ` (date corrected from ${originalDate})` : ''}`);
             }
         }
         
