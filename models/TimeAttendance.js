@@ -193,6 +193,14 @@ timeAttendanceSchema.methods.recalculateAttendanceTimes = function() {
         // Create correct date object for this VN date
         const correctedDate = this.constructor.parseAndNormalizeDateString(vnDateString);
 
+        console.log(`🔧 [TimeAttendance] ${this.employeeCode} date fix check:`, {
+            originalDate,
+            checkInTime: this.checkInTime,
+            vnDateString,
+            correctedDate: correctedDate.toISOString().split('T')[0],
+            willChange: originalDate !== correctedDate.toISOString().split('T')[0]
+        });
+
         if (originalDate !== correctedDate.toISOString().split('T')[0]) {
             console.log(`🔧 [TimeAttendance] Correcting date from ${originalDate} to ${correctedDate.toISOString().split('T')[0]} (VN date: ${vnDateString})`);
             this.date = correctedDate;
