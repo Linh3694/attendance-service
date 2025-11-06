@@ -236,8 +236,9 @@ timeAttendanceSchema.statics.fixAllAttendanceForEmployee = async function(employ
             const checkOutChanged = originalCheckOut !== record.checkOutTime?.toISOString();
             const dateChanged = originalDate !== newDate;
 
+            // FORCE SAVE: Save all records to ensure date field is corrected
+            await record.save();
             if (checkOutChanged || dateChanged) {
-                await record.save();
                 fixedCount++;
                 console.log(`✅ Fixed attendance for ${employeeCode} on ${newDate}${dateChanged ? ` (date corrected from ${originalDate})` : ''}`);
             }
