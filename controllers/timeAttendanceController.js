@@ -473,14 +473,19 @@ exports.getEmployeeAttendance = async (req, res) => {
                         console.log(`📊 [getEmployeeAttendance] Recalculated times for ${record.employeeCode} on ${record.date.toISOString().split('T')[0]}:`, {
                             checkIn: checkInTime.toISOString(),
                             checkOut: checkOutTime.toISOString(),
-                            totalTimes: totalCheckIns
+                            totalTimes: totalCheckIns,
+                            vnDateString: TimeAttendance.formatDateToVNString(record.date)
                         });
                     }
+                    
+                    // FIXED: Format date correctly - convert UTC date to VN timezone string
+                    // Date in DB is UTC but represents VN timezone date, so we need to convert it back
+                    const vnDateString = TimeAttendance.formatDateToVNString(record.date);
                     
                     return {
                         _id: record._id,
                         employeeCode: record.employeeCode,
-                        date: record.date.toISOString().split('T')[0], // YYYY-MM-DD format
+                        date: vnDateString, // YYYY-MM-DD format in VN timezone
                         checkInTime: checkInTime,
                         checkOutTime: checkOutTime,
                         totalCheckIns: totalCheckIns,

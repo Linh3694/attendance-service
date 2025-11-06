@@ -305,6 +305,38 @@ timeAttendanceSchema.statics.normalizeDateToVNTimezone = function(date) {
 };
 
 /**
+ * Helper function: Convert UTC date (stored in DB) to VN timezone date string (YYYY-MM-DD)
+ * This is used when formatting dates for API responses
+ * 
+ * @param {Date} utcDate - UTC date from database (represents VN timezone date)
+ * @returns {string} - Date string in YYYY-MM-DD format representing VN timezone date
+ * 
+ * Example:
+ * - Input: UTC 2025-11-04T17:00:00Z (stored date representing VN 2025-11-05 00:00:00+07:00)
+ * - Output: "2025-11-05" (VN date)
+ */
+timeAttendanceSchema.statics.formatDateToVNString = function(utcDate) {
+    if (!utcDate || !(utcDate instanceof Date) || isNaN(utcDate.getTime())) {
+        throw new Error(`Invalid date: ${utcDate}`);
+    }
+    
+    // VN timezone offset: UTC+7 = 7 hours ahead of UTC
+    const VN_TIMEZONE_OFFSET_MS = 7 * 60 * 60 * 1000; // 7 hours in milliseconds
+    
+    // Convert UTC date to VN timezone
+    const utcTime = utcDate.getTime();
+    const vnTime = utcTime + VN_TIMEZONE_OFFSET_MS;
+    const vnDate = new Date(vnTime);
+    
+    // Extract year, month, day from VN time
+    const year = vnDate.getUTCFullYear();
+    const month = String(vnDate.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(vnDate.getUTCDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
+};
+
+/**
  * Helper function: Parse date string (YYYY-MM-DD) and normalize to VN timezone day start
  * 
  * @param {string} dateStr - Date string in YYYY-MM-DD format
