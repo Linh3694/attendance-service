@@ -26,11 +26,14 @@ const connectDB = async () => {
 // Connect to Redis for future integrations
 const connectRedis = async () => {
   try {
+    console.log('🔄 [Attendance Service] Attempting to connect to Redis...');
+    console.log(`   Host: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
     await redisClient.connect();
     console.log('✅ [Attendance Service] Redis connected for future integrations');
   } catch (error) {
     console.warn('⚠️ [Attendance Service] Redis connection failed:', error.message);
-    console.warn('⚠️ [Attendance Service] Continuing without Redis (basic functionality)');
+    console.warn('⚠️ [Attendance Service] Continuing without Redis (attendance records will still be saved)');
+    console.warn('⚠️ [Attendance Service] Note: Notifications will NOT be sent until Redis is available');
   }
 };
 
