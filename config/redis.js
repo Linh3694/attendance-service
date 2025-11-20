@@ -5,12 +5,20 @@ class RedisClient {
   constructor() {
     this.client = null;
     this.connected = false;
+    this.isConnecting = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.reconnectDelay = 3000; // 3 seconds
   }
 
   async connect(isRetry = false) {
+    if (this.isConnecting) {
+      console.log('[Attendance Service] Redis connection already in progress');
+      return;
+    }
+
+    this.isConnecting = true;
+
     try {
       const attempt = isRetry ? this.reconnectAttempts + 1 : 1;
       this.client = createClient({
@@ -47,25 +55,15 @@ class RedisClient {
       await this.client.connect();
       this.connected = true;
       this.reconnectAttempts = 0;
-      
+
       console.log(`✅ [Attendance Service] Redis connected successfully (attempt ${attempt})`);
 
     } catch (error) {
-      console.warn(`⚠️ [Attendance Service] Redis connection failed (attempt ${isRetry ? this.reconnectAttempts + 1 : 1}):`, error.message);
+      console.warn(`⚠️ [Attendance Service] Redis connection failed, service will continue without Redis:`, error.message);
       this.connected = false;
-      
-      // Thử kết nối lại nếu chưa vượt quá max attempts
-      if (isRetry && this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.reconnectAttempts++;
-        console.log(`⏳ [Attendance Service] Retrying Redis connection in ${this.reconnectDelay}ms... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-        setTimeout(() => this.connect(true), this.reconnectDelay);
-      } else if (!isRetry) {
-        // First attempt - thử lại 1 lần
-        console.log(`⏳ [Attendance Service] Scheduling Redis reconnect in ${this.reconnectDelay}ms...`);
-        setTimeout(() => this.connect(true), this.reconnectDelay);
-      }
-      
-      throw error;
+      // Don't throw error - Redis is optional
+    } finally {
+      this.isConnecting = false;
     }
   }
 
@@ -87,11 +85,8 @@ class RedisClient {
 
   // Publish attendance events to Redis for future Frappe/Notification integration
   async publishAttendanceEvent(eventType, data) {
-    // Thử kết nối lại nếu mất kết nối
-    const connected = await this.ensureConnected();
-    
-    if (!connected) {
-      console.warn('⚠️ [Attendance Service] Redis not connected, skipping event publish');
+    if (!this.connected || !this.client) {
+      console.warn('⚠️ [Attendance Service] Redis not available, skipping event publish');
       // Không throw error, tiếp tục xử lý attendance record
       return false;
     }
@@ -107,11 +102,11 @@ class RedisClient {
       // Publish to notification service channel
       const notificationChannel = process.env.REDIS_NOTIFICATION_CHANNEL || 'notification_events';
       await this.client.publish(notificationChannel, JSON.stringify(message));
-      
+
       // Publish to frappe service channel
       const frappeChannel = process.env.REDIS_FRAPPE_CHANNEL || 'frappe_events';
       await this.client.publish(frappeChannel, JSON.stringify(message));
-      
+
       console.log(`📤 [Attendance Service] Published ${eventType} to Redis channels`);
       return true;
     } catch (error) {
@@ -123,8 +118,11 @@ class RedisClient {
 
   // Basic Redis operations for caching (if needed in future)
   async set(key, value, ttl = null) {
-    if (!this.connected) return;
-    
+    if (!this.connected || !this.client) {
+      console.warn('[Attendance Service] Redis not available, skipping set operation');
+      return;
+    }
+
     try {
       const stringValue = typeof value === 'object' ? JSON.stringify(value) : value;
       if (ttl) {
@@ -133,26 +131,34 @@ class RedisClient {
         await this.client.set(key, stringValue);
       }
     } catch (error) {
-      console.error('❌ Redis SET error:', error);
+      console.error('❌ [Attendance Service] Redis SET error:', error);
     }
   }
 
   async get(key) {
-    if (!this.connected) return null;
-    
+    if (!this.connected || !this.client) {
+      console.warn('[Attendance Service] Redis not available, skipping get operation');
+      return null;
+    }
+
     try {
       const value = await this.client.get(key);
       if (!value) return null;
-      
+
       try {
         return JSON.parse(value);
       } catch {
         return value;
       }
     } catch (error) {
-      console.error('❌ Redis GET error:', error);
+      console.error('❌ [Attendance Service] Redis GET error:', error);
       return null;
     }
+  }
+
+  // Check if Redis is available
+  isRedisAvailable() {
+    return this.connected;
   }
 
   async disconnect() {

@@ -23,23 +23,27 @@ const connectDB = async () => {
   }
 };
 
-// Connect to Redis for future integrations
+// Connect to Redis for future integrations (optional)
 const connectRedis = async () => {
   try {
     console.log('🔄 [Attendance Service] Attempting to connect to Redis...');
     console.log(`   Host: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
     await redisClient.connect();
-    console.log('✅ [Attendance Service] Redis connected for future integrations');
+    if (redisClient.isRedisAvailable()) {
+      console.log('✅ [Attendance Service] Redis connected for future integrations');
+    } else {
+      console.log('⚠️ [Attendance Service] Redis connection failed, continuing without Redis');
+      console.log('⚠️ [Attendance Service] Attendance records will still be saved, notifications will be skipped');
+    }
   } catch (error) {
-    console.warn('⚠️ [Attendance Service] Redis connection failed:', error.message);
-    console.warn('⚠️ [Attendance Service] Continuing without Redis (attendance records will still be saved)');
-    console.warn('⚠️ [Attendance Service] Note: Notifications will NOT be sent until Redis is available');
+    console.warn('⚠️ [Attendance Service] Redis connection failed, continuing without Redis:', error.message);
+    console.warn('⚠️ [Attendance Service] Attendance records will still be saved, notifications will be skipped');
   }
 };
 
 // CORS Configuration
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'https://wis-staging.wellspring.edu.vn', 'https://parentportal-staging.wellspring.edu.vn'],
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'https://wis-staging.wellspring.edu.vn', 'https://parentportal-staging.wellspring.edu.vn', 'https://parentportal.wellspring.edu.vn'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
@@ -79,14 +83,33 @@ app.use((req, res, next) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
+  const healthStatus = {
     service: 'attendance-service',
     version: '1.0.0-simplified',
     timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    redis: redisClient ? 'available' : 'unavailable'
-  });
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  };
+
+  // Check Redis status (optional)
+  if (redisClient && redisClient.isRedisAvailable()) {
+    healthStatus.redis = 'connected';
+    healthStatus.redis_note = 'Redis available for notifications and caching';
+  } else {
+    healthStatus.redis = 'unavailable';
+    healthStatus.redis_note = 'Redis is optional, service continues to work without caching/notifications';
+  }
+
+  // Determine overall status - only MongoDB is critical
+  if (mongoose.connection.readyState !== 1) {
+    healthStatus.status = 'error';
+    res.status(503).json(healthStatus);
+  } else if (healthStatus.redis === 'unavailable') {
+    healthStatus.status = 'degraded';
+    res.status(200).json(healthStatus); // Redis unavailable is not a critical error
+  } else {
+    healthStatus.status = 'ok';
+    res.status(200).json(healthStatus);
+  }
 });
 
 // Import and use routes
