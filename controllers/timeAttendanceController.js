@@ -145,22 +145,22 @@ exports.handleHikvisionEvent = async (req, res) => {
     try {
         const eventData = req.body;
         
-        // 🔍 LOG RAW DATA - DEBUGGING
-        console.log('\n' + '='.repeat(80));
-        console.log('🔍 [HIKVISION RAW DATA] Received at:', new Date().toISOString());
-        console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
-        console.log('Request Body (Raw):', JSON.stringify(eventData, null, 2));
-        console.log('Request Body (String):', JSON.stringify(eventData));
-        console.log('='.repeat(80) + '\n');
-        
-        // Nếu body rỗng, có thể là heartbeat
-        if (!eventData || Object.keys(eventData).length === 0) {
+        // Skip heartbeat events
+        if (!eventData || Object.keys(eventData).length === 0 || eventData.eventType === 'heartBeat') {
             return res.status(200).json({
                 status: "success",
                 message: "Heartbeat received",
                 timestamp: new Date().toISOString()
             });
         }
+        
+        // 🔍 LOG RAW DATA - DEBUGGING (chỉ log khi có attendance event thực tế)
+        console.log('\n' + '='.repeat(80));
+        console.log('🔍 [HIKVISION RAW DATA] Received at:', new Date().toISOString());
+        console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
+        console.log('Request Body (Raw):', JSON.stringify(eventData, null, 2));
+        console.log('Request Body (String):', JSON.stringify(eventData));
+        console.log('='.repeat(80) + '\n');
         
         // Extract thông tin từ event notification
         let eventType = null;
