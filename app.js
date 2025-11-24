@@ -42,8 +42,17 @@ const connectRedis = async () => {
 };
 
 // CORS Configuration
+// Hỗ trợ: WIS frontend, Parent Portal, Workspace Mobile (via nginx proxy)
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'https://wis-staging.wellspring.edu.vn', 'https://parentportal-staging.wellspring.edu.vn', 'https://parentportal.wellspring.edu.vn'],
+  origin: process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://wis.wellspring.edu.vn',
+    'https://wis-staging.wellspring.edu.vn',
+    'https://parentportal.wellspring.edu.vn',
+    'https://parentportal-staging.wellspring.edu.vn',
+    'https://admin.sis.wellspring.edu.vn'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
